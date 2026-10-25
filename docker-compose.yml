@@ -1,0 +1,75 @@
+# Локальная разработка: docker compose up --build
+# Тесты:                docker compose --profile test run --rm tests
+name: support-bot
+
+x-pg-env: &pg-env
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+
+x-pg-healthcheck: &pg-healthcheck
+  test: ["CMD-SHELL", "pg_isready -U postgres"]
+  interval: 2s
+  timeout: 3s
+  retries: 30
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      <<: *pg-env
+      POSTGRES_DB: support_bot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck: *pg-healthcheck
+
+  app:
+    build:
+      context: .
+      target: dev
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BOT_MODE: polling
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/support_bot
+      LOG_FORMAT: console
+    # В dev миграции применяются автоматически при старте (в production — отдельной командой).
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn support_bot.main:create_app --factory --host 0.0.0.0 --port 8000
+             --reload --reload-dir src"
+    ports:
+      - "8000:8000"
+      - "9000:9000"
+    volumes:
+      - ./src:/app/src
+      - ./migrations:/app/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+
+  test-db:
+    profiles: [test]
+    image: postgres:17-alpine
+    environment: *pg-env
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - "55432:5432"
+    healthcheck: *pg-healthcheck
+
+  tests:
+    profiles: [test]
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@test-db:5432/support_bot_test
+    depends_on:
+      test-db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

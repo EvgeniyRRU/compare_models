@@ -72,7 +72,7 @@ class Settings(BaseSettings):
             return [value]
         return value
 
-    @field_validator("sentry_dsn", "webhook_url", "webapp_url", mode="before")
+    @field_validator("sentry_dsn", "webhook_url", "webapp_url", "webhook_secret", mode="before")
     @classmethod
     def _empty_to_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():

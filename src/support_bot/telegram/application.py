@@ -63,5 +63,14 @@ async def run_polling(
             await asyncio.sleep(3)
             continue
         for update in updates:
-            await pipeline.handle(update)
+            try:
+                await pipeline.handle(update)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Например, БД недоступна при записи дедупликации: апдейт не обработан,
+                # offset не сдвигаем и повторим позже (повторная обработка исключена дедупом).
+                log.warning("polling_update_failed", update_id=update.update_id, exc_info=True)
+                await asyncio.sleep(3)
+                break
             offset = update.update_id + 1
