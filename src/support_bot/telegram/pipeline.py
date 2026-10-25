@@ -6,7 +6,7 @@
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from typing import Any, Literal, Protocol
 
 import structlog
@@ -29,7 +29,7 @@ class UpdatePipeline:
     def __init__(
         self,
         dedup: UpdateDeduplicator,
-        processor: Callable[[Any], Awaitable[None]],
+        processor: Callable[[Any], Coroutine[Any, Any, None]],
         *,
         timeout: float,
     ) -> None:
@@ -54,7 +54,9 @@ class UpdatePipeline:
             return "duplicate"
         try:
             async with asyncio.timeout(self._timeout):
-                await self._processor(update)
+                # Отдельная задача — своя копия contextvars: теги логов, привязанные
+                # хендлерами, не протекают в следующие апдейты (важно для polling).
+                await asyncio.create_task(self._processor(update))
         except TimeoutError as exc:
             log.error("update_timeout", timeout=self._timeout)
             metrics.ERRORS.labels(component="bot").inc()

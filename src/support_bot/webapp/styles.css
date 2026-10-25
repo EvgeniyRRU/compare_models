@@ -1,0 +1,137 @@
+/* Цвета берутся из темы Telegram (переменные выставляет telegram-web-app.js).
+   Фолбэки — для открытия в обычном браузере при отладке. */
+:root {
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --text: var(--tg-theme-text-color, #1c1c1e);
+  --hint: var(--tg-theme-hint-color, #8e8e93);
+  --link: var(--tg-theme-link-color, #2481cc);
+  --button: var(--tg-theme-button-color, #2481cc);
+  --button-text: var(--tg-theme-button-text-color, #ffffff);
+  --secondary-bg: var(--tg-theme-secondary-bg-color, #f2f2f7);
+  --section-bg: var(--tg-theme-section-bg-color, var(--bg));
+  --separator: var(--tg-theme-section-separator-color, rgba(127, 127, 127, 0.2));
+  --danger: var(--tg-theme-destructive-text-color, #e53935);
+  --radius: 12px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.tg) {
+    --bg: #1c1c1e;
+    --text: #f2f2f7;
+    --hint: #8e8e93;
+    --secondary-bg: #000000;
+    --section-bg: #1c1c1e;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--secondary-bg);
+  color: var(--text);
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  border-bottom: 1px solid var(--separator);
+}
+
+.tabs, .subtabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+
+.tab {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--hint);
+  font: inherit;
+  cursor: pointer;
+}
+.tab.active { background: var(--button); color: var(--button-text); }
+
+.content { padding: 12px 12px 32px; max-width: 760px; margin: 0 auto; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+select, button.btn {
+  font: inherit;
+  border-radius: 10px;
+  border: 1px solid var(--separator);
+  padding: 8px 10px;
+  background: var(--section-bg);
+  color: var(--text);
+}
+select { flex: 1 1 140px; min-width: 0; }
+
+button.btn { cursor: pointer; }
+button.btn.primary { background: var(--button); color: var(--button-text); border-color: transparent; }
+button.btn.danger { color: var(--danger); }
+button.btn:disabled { opacity: 0.5; cursor: default; }
+
+.card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--section-bg);
+  color: inherit;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.card-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.card-title { font-weight: 600; }
+.card-text {
+  margin-top: 4px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.meta { color: var(--hint); font-size: 13px; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--secondary-bg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.section { background: var(--section-bg); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+.section h2 { margin: 0 0 8px; font-size: 17px; }
+.fields { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; }
+.fields dt { color: var(--hint); }
+.fields dd { margin: 0; overflow-wrap: anywhere; }
+.description { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.pager { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+
+.user-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--separator); }
+.user-row:last-child { border-bottom: 0; }
+.user-row select { flex: 0 0 150px; }
+
+.error { color: var(--danger); }
+.hint { color: var(--hint); }
+a { color: var(--link); }
+.back { background: none; border: 0; color: var(--link); font: inherit; padding: 0 0 8px; cursor: pointer; }
