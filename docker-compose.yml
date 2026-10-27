@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: support
+      POSTGRES_PASSWORD: support
+      POSTGRES_DB: support
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support -d support"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  app:
+    build:
+      context: .
+      target: dev
+    env_file: .env
+    environment:
+      BOT_MODE: polling
+      DATABASE_URL: postgresql+asyncpg://support:support@postgres:5432/support
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - ./src:/app/src
+      - ./migrations:/app/migrations
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn support_bot.main:create_app --factory --host 0.0.0.0 --port 8000 --reload"]
+volumes:
+  postgres_data:

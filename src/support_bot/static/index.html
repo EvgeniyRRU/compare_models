@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Обращения поддержки</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <main>
+    <header class="masthead"><div><p class="eyebrow">ПОДДЕРЖКА → РАЗРАБОТКА</p><h1>Обращения</h1></div><p id="identity" class="muted"></p></header>
+    <p id="notice" role="status" aria-live="polite" hidden></p>
+    <section id="workspace" hidden>
+      <nav class="tabs" aria-label="Разделы">
+        <button type="button" data-scope="all" aria-current="page">Все</button>
+        <button type="button" data-scope="created">Мои: созданные</button>
+        <button type="button" data-scope="assigned">Мои: назначенные</button>
+        <button type="button" id="users-tab" hidden>Пользователи</button>
+      </nav>
+      <section id="ticket-view">
+        <div class="filters">
+          <label>Статус<select id="status"><option value="">Все статусы</option><option value="new">Новый</option><option value="in_progress">В работе</option><option value="waiting_info">В ожидании информации</option><option value="resolved">Решено</option><option value="rejected">Отклонено</option><option value="duplicate">Дубль</option></select></label>
+          <label>Приоритет<select id="priority"><option value="">Все приоритеты</option><option value="critical">Критический</option><option value="high">Высокий</option><option value="medium">Средний</option><option value="low">Низкий</option></select></label>
+          <button id="refresh" type="button" class="secondary">Обновить</button>
+        </div>
+        <div class="section-heading"><p id="ticket-count" class="muted"></p><span class="muted">Сначала новые</span></div>
+        <div id="tickets" class="stack" aria-live="polite"></div>
+        <div class="pagination"><button id="previous" type="button" class="secondary">← Назад</button><span id="page-label"></span><button id="next" type="button" class="secondary">Далее →</button></div>
+      </section>
+      <section id="user-view" hidden>
+        <h2>Права доступа</h2><p class="muted">Новые пользователи появляются после взаимодействия с ботом. Смена роли действует сразу.</p>
+        <div id="users" class="stack"></div>
+        <div class="pagination"><button id="users-previous" type="button" class="secondary">← Назад</button><span id="users-page-label"></span><button id="users-next" type="button" class="secondary">Далее →</button></div>
+      </section>
+      <section id="detail-view" hidden><button id="back" type="button" class="secondary">← К списку</button><div id="detail"></div></section>
+    </section>
+    <footer>Учёт обращений к дежурному разработчику</footer>
+  </main>
+</body>
+</html>
