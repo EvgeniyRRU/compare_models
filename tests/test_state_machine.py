@@ -55,8 +55,12 @@ def test_final_transitions(status, action, expected):
 
 
 def test_wait_resume_cycle():
-    assert plan_transition(Status.IN_PROGRESS, 2, Action.WAIT, DEV).new_status == Status.WAITING_INFO
-    assert plan_transition(Status.WAITING_INFO, 2, Action.RESUME, DEV).new_status == Status.IN_PROGRESS
+    assert (
+        plan_transition(Status.IN_PROGRESS, 2, Action.WAIT, DEV).new_status == Status.WAITING_INFO
+    )
+    assert (
+        plan_transition(Status.WAITING_INFO, 2, Action.RESUME, DEV).new_status == Status.IN_PROGRESS
+    )
     with pytest.raises(InvalidTransition):
         plan_transition(Status.WAITING_INFO, 2, Action.WAIT, DEV)
 
@@ -64,13 +68,18 @@ def test_wait_resume_cycle():
 def test_other_developer_cannot_act_but_admin_can():
     with pytest.raises(PermissionDenied):
         plan_transition(Status.IN_PROGRESS, 2, Action.RESOLVE, OTHER_DEV)
-    assert plan_transition(Status.IN_PROGRESS, 2, Action.RESOLVE, ADMIN).new_status == Status.RESOLVED
+    assert (
+        plan_transition(Status.IN_PROGRESS, 2, Action.RESOLVE, ADMIN).new_status == Status.RESOLVED
+    )
 
 
 def test_release_returns_to_new_and_schedules_reminder():
     tr = plan_transition(Status.WAITING_INFO, 2, Action.RELEASE, DEV)
     assert (tr.new_status, tr.assignee, tr.taken_at, tr.reminder) == (
-        Status.NEW, "clear", "clear", "schedule",
+        Status.NEW,
+        "clear",
+        "clear",
+        "schedule",
     )
 
 

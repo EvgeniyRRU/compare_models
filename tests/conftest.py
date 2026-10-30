@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.db.models import User
 from app.services.tickets import TicketService
@@ -26,7 +31,7 @@ INTERVALS = {
 }
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def engine() -> AsyncIterator[AsyncEngine]:
     admin_url = TEST_URL.rsplit("/", 1)[0] + "/postgres"
     dbname = TEST_URL.rsplit("/", 1)[1]
@@ -41,8 +46,12 @@ async def engine() -> AsyncIterator[AsyncEngine]:
     # схема создаётся миграциями Alembic: заодно проверяем их
     env = {**os.environ, "ALEMBIC_DATABASE_URL": TEST_URL}
     for cmd in (["downgrade", "base"], ["upgrade", "head"]):
-        subprocess.run(
-            [sys.executable, "-m", "alembic", *cmd], cwd=ROOT, env=env, check=True, capture_output=True
+        subprocess.run(  # noqa: ASYNC221
+            [sys.executable, "-m", "alembic", *cmd],
+            cwd=ROOT,
+            env=env,
+            check=True,
+            capture_output=True,
         )
     eng = create_async_engine(TEST_URL, pool_size=20)
     yield eng

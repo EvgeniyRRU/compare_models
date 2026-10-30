@@ -37,7 +37,9 @@ async def get(sm, ds, uid):
 
 async def press(sm, ds, uid, d, action, value=None, version=None):
     async with sm() as s, s.begin():
-        return await ds.press(s, uid, d.id, d.version if version is None else version, action, value)
+        return await ds.press(
+            s, uid, d.id, d.version if version is None else version, action, value
+        )
 
 
 async def fill_to_confirm(sm, ds, uid):
@@ -81,7 +83,7 @@ async def test_skip_tenant(sm, ds, users):
     _, d, _ = await press(sm, ds, uid, d, "p", "low")
     await ask(sm, ds, d, 11)
     _, d, _ = await text(sm, ds, uid, "R", 11)
-    res, d, _ = await press(sm, ds, uid, d, "s")
+    _res, d, _ = await press(sm, ds, uid, d, "s")
     assert d.step == Step.CONFIRM and "tenant_id" not in d.data
     _, _, ticket = await press(sm, ds, uid, d, "ok")
     assert ticket.tenant_id is None
@@ -102,7 +104,7 @@ async def test_text_not_a_reply_changes_nothing(sm, ds, users):
     uid = users["support"].id
     d = await start(sm, ds, uid)
     for reply_to in (None, 999):
-        res, view, _ = await text(sm, ds, uid, "ответ", reply_to)
+        res, _view, _ = await text(sm, ds, uid, "ответ", reply_to)
         assert res == TextResult.UNBOUND
     await ask(sm, ds, d, 10)
     res, _, _ = await text(sm, ds, uid, "ответ", 999)
@@ -202,9 +204,7 @@ async def test_one_draft_per_user_and_ttl(sm, ds, users):
     b = await start(sm, ds, uid)
     assert a.id != b.id
     async with sm() as s, s.begin():
-        await s.execute(
-            update(TicketDraft).values(updated_at=func.now() - timedelta(hours=25))
-        )
+        await s.execute(update(TicketDraft).values(updated_at=func.now() - timedelta(hours=25)))
     async with sm() as s, s.begin():
         assert await ds.cleanup_expired(s) == 1
     assert await get(sm, ds, uid) is None

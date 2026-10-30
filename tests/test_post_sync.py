@@ -33,7 +33,9 @@ async def _get(sm, tid) -> Ticket:
 
 async def _locks(engine) -> int:
     async with engine.connect() as c:
-        return (await c.execute(text("SELECT count(*) FROM pg_locks WHERE locktype='advisory'"))).scalar_one()
+        return (
+            await c.execute(text("SELECT count(*) FROM pg_locks WHERE locktype='advisory'"))
+        ).scalar_one()
 
 
 async def test_first_publish_then_not_selected_again(sm, svc, users, syncer, pub):

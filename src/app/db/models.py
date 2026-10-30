@@ -75,7 +75,9 @@ class Ticket(Base):
             "(status IN ('resolved', 'rejected', 'duplicate')) = (closed_at IS NOT NULL)",
             name="tickets_closed_at",
         ),
-        CheckConstraint("char_length(description) BETWEEN 1 AND 3000", name="tickets_description_len"),
+        CheckConstraint(
+            "char_length(description) BETWEEN 1 AND 3000", name="tickets_description_len"
+        ),
         CheckConstraint("char_length(request_id) BETWEEN 1 AND 64", name="tickets_request_id_len"),
         CheckConstraint("char_length(tenant_id) BETWEEN 1 AND 64", name="tickets_tenant_id_len"),
         Index("ix_tickets_status", "status"),

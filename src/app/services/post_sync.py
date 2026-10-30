@@ -71,7 +71,9 @@ class PostSyncer:
         async with self._sm() as session:
             rows = await session.execute(
                 select(Ticket.id)
-                .where((Ticket.message_id.is_(None)) | (Ticket.post_synced_version < Ticket.version))
+                .where(
+                    (Ticket.message_id.is_(None)) | (Ticket.post_synced_version < Ticket.version)
+                )
                 .order_by(Ticket.id)
                 .limit(limit)
             )

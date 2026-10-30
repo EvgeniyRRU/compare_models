@@ -114,7 +114,9 @@ def plan_transition(
 ) -> Transition:
     """Проверяет право и допустимость действия, возвращает описание изменения."""
     is_admin = actor.role == Role.ADMIN
-    is_assignee = assignee_id is not None and assignee_id == actor.id and can_be_assignee(actor.role)
+    is_assignee = (
+        assignee_id is not None and assignee_id == actor.id and can_be_assignee(actor.role)
+    )
 
     if action == Action.TAKE:
         if not can_be_assignee(actor.role):
@@ -150,11 +152,15 @@ def plan_transition(
     if action == Action.WAIT:
         if status != Status.IN_PROGRESS:
             raise InvalidTransition("Недопустимый переход статуса")
-        return Transition(Status.WAITING_INFO, EventType.STATUS_CHANGED, "keep", "keep", "keep", "keep")
+        return Transition(
+            Status.WAITING_INFO, EventType.STATUS_CHANGED, "keep", "keep", "keep", "keep"
+        )
     if action == Action.RESUME:
         if status != Status.WAITING_INFO:
             raise InvalidTransition("Недопустимый переход статуса")
-        return Transition(Status.IN_PROGRESS, EventType.STATUS_CHANGED, "keep", "keep", "keep", "keep")
+        return Transition(
+            Status.IN_PROGRESS, EventType.STATUS_CHANGED, "keep", "keep", "keep", "keep"
+        )
     if action in _FINAL_ACTIONS:
         return Transition(
             _FINAL_ACTIONS[action], EventType.STATUS_CHANGED, "keep", "keep", "set", "keep"

@@ -13,7 +13,6 @@ from app.domain.state_machine import (
     Priority,
     Role,
     StaleTicket,
-    Status,
 )
 from app.services.tickets import NewTicket
 from app.services.users import RoleChangeBlocked, set_role
@@ -187,14 +186,16 @@ async def test_role_change_vs_concurrent_take(sm, svc, users):
             u = await s.get(type(users["dev2"]), users["dev2"].id, populate_existing=True)
             active = (
                 await s.execute(
-                    select(func.count()).select_from(Ticket).where(
-                        Ticket.assignee_id == u.id, Ticket.status == "in_progress"
-                    )
+                    select(func.count())
+                    .select_from(Ticket)
+                    .where(Ticket.assignee_id == u.id, Ticket.status == "in_progress")
                 )
             ).scalar_one()
         assert not (u.role in (None, "support") and active), res
         async with sm() as s, s.begin():
-            await s.execute(text("UPDATE tickets SET status='new', assignee_id=NULL, taken_at=NULL"))
+            await s.execute(
+                text("UPDATE tickets SET status='new', assignee_id=NULL, taken_at=NULL")
+            )
             await s.execute(update(type(u)).where(type(u).id == u.id).values(role="developer"))
 
 

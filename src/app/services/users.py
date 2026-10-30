@@ -43,7 +43,7 @@ async def ensure_user(
         last_name=last_name,
         role=initial_role,
     )
-    stmt = stmt.on_conflict_do_update(
+    upsert = stmt.on_conflict_do_update(
         index_elements=[User.telegram_id],
         set_={
             "username": stmt.excluded.username,
@@ -51,7 +51,9 @@ async def ensure_user(
             "last_name": stmt.excluded.last_name,
         },
     ).returning(User)
-    user = (await session.execute(stmt.execution_options(populate_existing=True))).scalar_one()
+    user: User = (
+        await session.execute(upsert.execution_options(populate_existing=True))
+    ).scalar_one()
     return user
 
 
@@ -80,12 +82,16 @@ async def set_role(
     old_role = Role(target.role) if target.role else None
     if can_be_assignee(old_role) and not can_be_assignee(new_role):
         ids = (
-            await session.execute(
-                select(Ticket.id)
-                .where(Ticket.assignee_id == target.id, Ticket.status.in_(ACTIVE_STATUSES))
-                .order_by(Ticket.id)
+            (
+                await session.execute(
+                    select(Ticket.id)
+                    .where(Ticket.assignee_id == target.id, Ticket.status.in_(ACTIVE_STATUSES))
+                    .order_by(Ticket.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if ids:
             raise RoleChangeBlocked(list(ids))
     target.role = new_role.value if new_role else None

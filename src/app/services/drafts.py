@@ -29,7 +29,11 @@ _NEXT = {
     Step.REQUEST_ID: Step.TENANT_ID,
     Step.TENANT_ID: Step.CONFIRM,
 }
-_FIELD = {Step.DESCRIPTION: "description", Step.REQUEST_ID: "request_id", Step.TENANT_ID: "tenant_id"}
+_FIELD = {
+    Step.DESCRIPTION: "description",
+    Step.REQUEST_ID: "request_id",
+    Step.TENANT_ID: "tenant_id",
+}
 _LIMITS = {Step.DESCRIPTION: DESCRIPTION_MAX, Step.REQUEST_ID: ID_MAX, Step.TENANT_ID: ID_MAX}
 
 

@@ -4,7 +4,12 @@ import time
 from collections.abc import AsyncIterator
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 _LOCK_NAMESPACE = 0x5550_0000_0000_0000
 
@@ -23,7 +28,11 @@ class LockTimeout(Exception):
 
 @contextlib.asynccontextmanager
 async def advisory_lock(
-    engine: AsyncEngine, key: int, timeout: float, *, blocking: bool = True
+    engine: AsyncEngine,
+    key: int,
+    wait: float,
+    *,
+    blocking: bool = True,
 ) -> AsyncIterator[bool]:
     """Session-level advisory lock на выделенном соединении.
 
@@ -37,10 +46,12 @@ async def advisory_lock(
     acquired = False
     try:
         conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + wait
         while True:
             acquired = bool(
-                (await conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": lock_key})).scalar()
+                (
+                    await conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": lock_key})
+                ).scalar()
             )
             if acquired or not blocking:
                 break
@@ -63,5 +74,5 @@ async def advisory_lock(
             else:
                 await asyncio.shield(conn.invalidate())
                 await asyncio.shield(conn.close())
-        except BaseException:  # noqa: S110
+        except BaseException:
             pass

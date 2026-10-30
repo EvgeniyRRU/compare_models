@@ -193,3 +193,16 @@ async def author_and_assignee(session: AsyncSession, ticket: Ticket) -> tuple[Us
     assert author is not None
     assignee = await session.get(User, ticket.assignee_id) if ticket.assignee_id else None
     return author, assignee
+
+
+async def seconds_in_new(session: AsyncSession, ticket_id: int) -> float | None:
+    """Время от последнего входа в `new` (создание/отказ/переоткрытие) до сейчас; из журнала."""
+    row = (
+        await session.execute(
+            select(func.extract("epoch", func.now() - TicketEvent.created_at))
+            .where(TicketEvent.ticket_id == ticket_id, TicketEvent.new_status == Status.NEW.value)
+            .order_by(TicketEvent.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return float(row) if row is not None else None

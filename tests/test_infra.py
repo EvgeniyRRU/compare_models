@@ -2,7 +2,7 @@ import asyncio
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, update
 
 from app.db.models import ProcessedUpdate, Ticket
 from app.domain.state_machine import Action, Priority
@@ -20,7 +20,9 @@ async def _new_ticket(sm, svc, users, priority=Priority.CRITICAL):
 async def _make_due(sm, tid):
     async with sm() as s, s.begin():
         await s.execute(
-            update(Ticket).where(Ticket.id == tid).values(next_reminder_at=func.now() - timedelta(hours=5))
+            update(Ticket)
+            .where(Ticket.id == tid)
+            .values(next_reminder_at=func.now() - timedelta(hours=5))
         )
 
 
@@ -62,7 +64,9 @@ async def test_reminder_schedule_and_no_catch_up(sm, svc, users):
         assert await reminders.claim_due(s, INTERVALS) == []
         row = await s.get(Ticket, t.id)
         assert row.version == 1  # перенос срока version не меняет
-        nxt = (await s.execute(select(Ticket.next_reminder_at - func.now()).where(Ticket.id == t.id))).scalar_one()
+        nxt = (
+            await s.execute(select(Ticket.next_reminder_at - func.now()).where(Ticket.id == t.id))
+        ).scalar_one()
     assert timedelta(minutes=9) < nxt <= timedelta(minutes=10)
 
 
@@ -72,7 +76,9 @@ async def test_reminder_cleared_on_take_and_set_on_release(sm, svc, users):
         t = await svc.apply(s, t.id, Action.TAKE, users["dev"].id, 1)
         assert t.next_reminder_at is None
         t = await svc.apply(s, t.id, Action.RELEASE, users["dev"].id, 2)
-        left = (await s.execute(select(Ticket.next_reminder_at - func.now()).where(Ticket.id == t.id))).scalar_one()
+        left = (
+            await s.execute(select(Ticket.next_reminder_at - func.now()).where(Ticket.id == t.id))
+        ).scalar_one()
     assert timedelta(hours=7) < left <= timedelta(hours=8)
 
 
