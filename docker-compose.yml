@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: support
+      POSTGRES_PASSWORD: support
+      POSTGRES_DB: support
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support -d support"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  app:
+    build:
+      context: .
+      target: dev
+    environment:
+      BOT_MODE: polling
+      DATABASE_URL: postgresql+asyncpg://support:support@db:5432/support
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8000:8000"
+      - "9090:9090"
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+  test:
+    profiles: [test]
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgresql+asyncpg://test:test@db_test:5432/test
+    depends_on:
+      db_test:
+        condition: service_healthy
+  db_test:
+    image: postgres:17
+    profiles: [test]
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d test"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+volumes:
+  postgres_data:
