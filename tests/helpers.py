@@ -10,7 +10,9 @@ async def add_user(session: AsyncSession, telegram_id: int, role: str | None) ->
     user_id = await session.scalar(
         text(
             "INSERT INTO users (telegram_id, full_name, role) "
-            "VALUES (:tg, :name, :role) RETURNING id"
+            "VALUES (:tg, :name, :role) "
+            "ON CONFLICT (telegram_id) DO UPDATE SET role = EXCLUDED.role "
+            "RETURNING id"
         ),
         {"tg": telegram_id, "name": f"user{telegram_id}", "role": role},
     )
