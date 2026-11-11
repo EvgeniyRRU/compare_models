@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 import sys
@@ -7,7 +8,12 @@ from pathlib import Path
 import asyncpg
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from support_bot.config import Settings
 
@@ -35,7 +41,8 @@ async def _ensure_database() -> None:
 @pytest.fixture(scope="session")
 async def engine() -> AsyncIterator[AsyncEngine]:
     await _ensure_database()
-    subprocess.run(
+    await asyncio.to_thread(
+        subprocess.run,
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=ROOT,
         env={**os.environ, "DATABASE_URL": TEST_DATABASE_URL},

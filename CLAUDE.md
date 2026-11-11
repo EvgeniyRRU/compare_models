@@ -9,17 +9,16 @@ Telegram bot for tracking first-line support requests (обращения) to th
 - UI texts and bot messages: Russian.
 - Code, identifiers, comments, commit messages: English.
 - Stack: Python 3.14, FastAPI, python-telegram-bot v21+ (async, no Updater), PostgreSQL, SQLAlchemy 2.x async (asyncpg), Alembic, pydantic-settings, structlog, prometheus_client, sentry-sdk. Mini App: vanilla JS + Telegram WebApp SDK served as static files by FastAPI, no build step.
-- Status: the repository currently contains only `SPEC.md`. Implementation follows the stages in `SPEC.md` § «Порядок работы».
+- Status: all stages of `SPEC.md` § «Порядок работы» are implemented. `README.md` documents setup, env vars, migrations, images, BotFather steps and metric aggregation.
 
 ## Commands
 
-Target commands (update this section when they become real):
-
-- Local stack: `docker compose up` (app with `BOT_MODE=polling`, PostgreSQL with volume).
-- Tests: `docker compose run --rm test` or `pytest` against the PostgreSQL from compose. Tests run on real PostgreSQL, never on SQLite or mocks of the database.
-- Lint and format: `ruff check .` and `ruff format .`.
-- Types: `mypy` on the main code.
-- Migrations: `alembic upgrade head`, run as a separate command, never on application startup.
+- Database for tests and local dev: `docker compose up -d db` (PostgreSQL 17 on host port 5433). Tests create the `support_bot_test` database themselves; override with `TEST_DATABASE_URL`.
+- Tests: `uv run pytest` (or `docker compose --profile test run --rm test`). Tests run on real PostgreSQL, never SQLite or mocks of the database. Telegram is replaced by `tests/fake_telegram.py` (a `BaseRequest` double), so PTB dispatch runs for real.
+- Lint and format: `uv run ruff check .` and `uv run ruff format --check .`.
+- Types: `uv run mypy` (strict, on `src/support_bot`).
+- Migrations: `alembic upgrade head` as a separate command, never on application startup. New migration: `alembic revision --autogenerate -m "..."`, then review it by hand.
+- Local app: `docker compose up --build app` (polling mode, migrations run first).
 
 Run ruff, mypy and pytest before reporting a task as done, and report the actual output if something fails.
 
@@ -70,7 +69,7 @@ Run ruff, mypy and pytest before reporting a task as done, and report the actual
 ## Testing expectations
 
 - Required coverage areas are listed in `SPEC.md` § «Качество». Tests for state machine, permissions, version/optimistic checks, post sync, update deduplication, draft form, reminders, role-change guard, and Mini App API auth are not optional.
-- Write the failing test first for bug fixes and new rules.
+- Write the failing test first for bug fixes and new rules. Check that a test can fail: a test that passes before the fix proves nothing.
 
 ## Working agreements
 

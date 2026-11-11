@@ -40,9 +40,7 @@ async def _insert_ticket(session: AsyncSession, **fields: object) -> None:
     values.update(fields)
     columns = ", ".join(values)
     placeholders = ", ".join(f":{key}" for key in values)
-    await session.execute(
-        text(f"INSERT INTO tickets ({columns}) VALUES ({placeholders})"), values
-    )
+    await session.execute(text(f"INSERT INTO tickets ({columns}) VALUES ({placeholders})"), values)
     await session.commit()
 
 

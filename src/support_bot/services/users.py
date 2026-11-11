@@ -38,11 +38,15 @@ async def register_user(
 
 async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int) -> User | None:
     return await session.scalar(
-        select(User).where(User.telegram_id == telegram_id).execution_options(populate_existing=True)
+        select(User)
+        .where(User.telegram_id == telegram_id)
+        .execution_options(populate_existing=True)
     )
 
 
-async def current_role(session: AsyncSession, user_id: int, *, share_lock: bool = False) -> Role | None:
+async def current_role(
+    session: AsyncSession, user_id: int, *, share_lock: bool = False
+) -> Role | None:
     """Read the role from the database, never from a cache.
 
     `share_lock` takes FOR SHARE on the user row, so a concurrent role change waits

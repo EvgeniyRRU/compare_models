@@ -40,9 +40,7 @@ class Base(DeclarativeBase):
 
 
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Every table with updated_at uses the SQLAlchemy onupdate hook, including Core updates.
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -76,8 +74,7 @@ class Ticket(TimestampMixin, Base):
             "assigned_has_taker",
         ),
         CheckConstraint(
-            "(closed_at IS NOT NULL) = "
-            f"({_in('status', FINAL_STATUSES)})",
+            f"(closed_at IS NOT NULL) = ({_in('status', FINAL_STATUSES)})",
             "closed_at_matches_final",
         ),
         CheckConstraint(
@@ -115,9 +112,7 @@ class TicketEvent(Base):
     from_assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     to_assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     version: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class TicketDraft(TimestampMixin, Base):
@@ -131,7 +126,9 @@ class TicketDraft(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
-    step: Mapped[str] = mapped_column(String(16), default="description", server_default="description")
+    step: Mapped[str] = mapped_column(
+        String(16), default="description", server_default="description"
+    )
     description: Mapped[str | None] = mapped_column(String(3000))
     priority: Mapped[str | None] = mapped_column(String(16))
     request_id: Mapped[str | None] = mapped_column(String(64))
@@ -144,6 +141,4 @@ class ProcessedUpdate(Base):
     __tablename__ = "processed_updates"
 
     update_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

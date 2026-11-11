@@ -39,3 +39,25 @@ def test_levels_below_threshold_are_dropped(capsys: pytest.CaptureFixture[str]) 
     structlog.get_logger().info("quiet")
 
     assert capsys.readouterr().out == ""
+
+
+async def test_http_request_logs_carry_request_id(capsys: pytest.CaptureFixture[str]) -> None:
+    from httpx import ASGITransport, AsyncClient
+
+    from support_bot.web.app import create_app
+
+    configure_logging(level="INFO", fmt="json")
+    app = create_app()
+
+    @app.get("/_probe")
+    async def probe() -> dict[str, str]:
+        structlog.get_logger().info("probe hit")
+        return {"ok": "1"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+        response = await http.get("/_probe")
+
+    assert response.status_code == 200
+    record = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert record["event"] == "probe hit"
+    assert len(record["request_id"]) == 32

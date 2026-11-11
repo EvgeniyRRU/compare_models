@@ -38,6 +38,7 @@ class Outcome:
     kind: Kind
     state: DraftState | None = None
     ticket_id: int | None = None
+    priority: str | None = None
     message: str | None = None
 
 
@@ -308,7 +309,7 @@ async def _create(
     )
     await session.delete(row)
     await session.flush()
-    return Outcome("created", ticket_id=ticket.id)
+    return Outcome("created", ticket_id=ticket.id, priority=ticket.priority)
 
 
 async def _current(

@@ -3,7 +3,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 import structlog
 from sqlalchemy import select, text, update
@@ -22,7 +22,6 @@ from support_bot.services.post_render import (
 )
 
 LOCK_NAMESPACE = 7001
-T = TypeVar("T")
 log = structlog.get_logger()
 
 Keyboard = list[list[tuple[str, str]]]
@@ -135,7 +134,7 @@ def _keyboard(view: PostView) -> Keyboard:
     return [buttons] if buttons else []
 
 
-async def _retry(op: Callable[[], Awaitable[T]], *, attempts: int, base_seconds: float) -> T:
+async def _retry[T](op: Callable[[], Awaitable[T]], *, attempts: int, base_seconds: float) -> T:
     for attempt in range(attempts):
         try:
             return await op()

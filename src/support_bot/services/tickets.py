@@ -12,7 +12,6 @@ from support_bot.domain.errors import (
     StaleTicket,
     ValidationFailed,
 )
-from support_bot.domain.roles import Role
 from support_bot.domain.state_machine import Action, Status, decide
 from support_bot.services.users import current_role
 from support_bot.services.validation import DESCRIPTION_MAX, ID_MAX, optional_text, required_text
@@ -70,6 +69,7 @@ async def create_ticket(
             from_assignee_id=None,
             to_assignee_id=None,
             version=1,
+            created_at=now,
         )
     )
     return ticket
@@ -109,9 +109,7 @@ async def transition(
         raise _stale_error(action, ticket)
 
     is_assignee = ticket.assignee_id == actor_id
-    to_status = decide(
-        expected_status, action, actor_role=actor_role, is_assignee=is_assignee
-    )
+    to_status = decide(expected_status, action, actor_role=actor_role, is_assignee=is_assignee)
 
     new_assignee = ticket.assignee_id
     if action is Action.TAKE:
@@ -166,10 +164,43 @@ async def transition(
             from_assignee_id=ticket.assignee_id,
             to_assignee_id=new_assignee,
             version=new_version,
+            created_at=now,
         )
     )
     await session.flush()
     return await get_ticket(session, ticket_id)
+
+
+async def transition_at_version(
+    session: AsyncSession,
+    *,
+    settings: Settings,
+    actor_id: int,
+    ticket_id: int,
+    action: Action,
+    expected_version: int,
+    target_user_id: int | None = None,
+    now: datetime | None = None,
+) -> Ticket:
+    """Button entry point: a button carries the version, the status comes from the DB.
+
+    Each business change bumps the version, so a version identifies one status.
+    `transition` still re-checks both in its conditional UPDATE.
+    """
+    ticket = await get_ticket(session, ticket_id)
+    if ticket.version != expected_version:
+        raise _stale_error(action, ticket)
+    return await transition(
+        session,
+        settings=settings,
+        actor_id=actor_id,
+        ticket_id=ticket_id,
+        action=action,
+        expected_version=expected_version,
+        expected_status=Status(ticket.status),
+        target_user_id=target_user_id,
+        now=now,
+    )
 
 
 def _stale_error(action: Action, ticket: Ticket) -> Exception:
@@ -185,3 +216,28 @@ async def _assignable_target(session: AsyncSession, target_user_id: int | None) 
     if role is None or not role.can_be_assignee:
         raise ValidationFailed("Исполнитель должен быть разработчиком или администратором")
     return target_user_id
+
+
+async def time_to_take_seconds(session: AsyncSession, ticket_id: int) -> float | None:
+    """Seconds from the last entry into `new` to the latest take, read from the journal."""
+    take = await session.scalar(
+        select(TicketEvent)
+        .where(TicketEvent.ticket_id == ticket_id, TicketEvent.event_type == "taken")
+        .order_by(TicketEvent.id.desc())
+        .limit(1)
+    )
+    if take is None:
+        return None
+    entered_new = await session.scalar(
+        select(TicketEvent)
+        .where(
+            TicketEvent.ticket_id == ticket_id,
+            TicketEvent.to_status == Status.NEW.value,
+            TicketEvent.id < take.id,
+        )
+        .order_by(TicketEvent.id.desc())
+        .limit(1)
+    )
+    if entered_new is None or take.created_at is None or entered_new.created_at is None:
+        return None
+    return (take.created_at - entered_new.created_at).total_seconds()

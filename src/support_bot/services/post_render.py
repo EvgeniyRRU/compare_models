@@ -44,8 +44,20 @@ ACTION_CODES = {
 _CODE_BY_ACTION = {action: code for code, action in ACTION_CODES.items()}
 _ACTIONS_BY_STATUS = {
     Status.NEW: [Action.TAKE],
-    Status.IN_PROGRESS: [Action.WAIT_INFO, Action.RESOLVE, Action.REJECT, Action.DUPLICATE, Action.RELEASE],
-    Status.WAITING_INFO: [Action.RESUME, Action.RESOLVE, Action.REJECT, Action.DUPLICATE, Action.RELEASE],
+    Status.IN_PROGRESS: [
+        Action.WAIT_INFO,
+        Action.RESOLVE,
+        Action.REJECT,
+        Action.DUPLICATE,
+        Action.RELEASE,
+    ],
+    Status.WAITING_INFO: [
+        Action.RESUME,
+        Action.RESOLVE,
+        Action.REJECT,
+        Action.DUPLICATE,
+        Action.RELEASE,
+    ],
 }
 
 

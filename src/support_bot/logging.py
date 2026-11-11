@@ -20,9 +20,7 @@ def configure_logging(level: str, fmt: str) -> None:
             structlog.processors.format_exc_info,
             renderer,
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, level.upper())
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, level.upper())),
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=False,
     )

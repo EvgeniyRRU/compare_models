@@ -4,6 +4,7 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -30,7 +31,6 @@ class Settings(BaseSettings):
     post_sync_poll_seconds: float = 30.0
     post_sync_lock_timeout_seconds: float = 10.0
 
-    http_port: int = 8000
     metrics_port: int = 9100
 
     log_level: str = "INFO"

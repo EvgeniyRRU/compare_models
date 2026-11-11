@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -25,8 +26,14 @@ class FakeReminderSender:
 async def _new_ticket(session: AsyncSession, settings: Settings, priority: str = "critical") -> int:
     support = await add_user(session, 2000, "support")
     ticket = await ticket_svc.create_ticket(
-        session, settings=settings, actor_id=support, description="x", priority=priority,
-        request_id="R", tenant_id=None, now=NOW,
+        session,
+        settings=settings,
+        actor_id=support,
+        description="x",
+        priority=priority,
+        request_id="R",
+        tenant_id=None,
+        now=NOW,
     )
     await session.commit()
     await session.execute(
@@ -56,9 +63,7 @@ async def test_ticket_not_yet_due_is_not_claimed(
 ) -> None:
     await _new_ticket(session, settings)
 
-    jobs = await svc.claim_due_reminders(
-        engine, settings=settings, now=NOW + timedelta(minutes=1)
-    )
+    jobs = await svc.claim_due_reminders(engine, settings=settings, now=NOW + timedelta(minutes=1))
 
     assert jobs == []
 
@@ -84,14 +89,18 @@ async def test_taken_ticket_is_no_longer_reminded(
     ticket_id = await _new_ticket(session, settings)
     dev = await add_user(session, 2001, "developer")
     await ticket_svc.transition(
-        session, settings=settings, actor_id=dev, ticket_id=ticket_id,
-        action=Action.TAKE, expected_version=1, expected_status=Status.NEW, now=NOW,
+        session,
+        settings=settings,
+        actor_id=dev,
+        ticket_id=ticket_id,
+        action=Action.TAKE,
+        expected_version=1,
+        expected_status=Status.NEW,
+        now=NOW,
     )
     await session.commit()
 
-    jobs = await svc.claim_due_reminders(
-        engine, settings=settings, now=NOW + timedelta(hours=1)
-    )
+    jobs = await svc.claim_due_reminders(engine, settings=settings, now=NOW + timedelta(hours=1))
 
     assert jobs == []
 
@@ -101,9 +110,15 @@ async def test_concurrent_workers_never_claim_the_same_ticket_twice(
 ) -> None:
     for i in range(6):
         support = await add_user(session, 3000 + i, "support")
-        ticket = await ticket_svc.create_ticket(
-            session, settings=settings, actor_id=support, description="x", priority="low",
-            request_id="R", tenant_id=None, now=NOW,
+        await ticket_svc.create_ticket(
+            session,
+            settings=settings,
+            actor_id=support,
+            description="x",
+            priority="low",
+            request_id="R",
+            tenant_id=None,
+            now=NOW,
         )
         await session.commit()
 
@@ -123,7 +138,9 @@ async def test_reminder_pass_replies_to_post_and_sends_once(
     sender = FakeReminderSender()
 
     count = await svc.run_reminder_pass(
-        engine, settings=settings, sender=sender,
+        engine,
+        settings=settings,
+        sender=sender,
         now=NOW + timedelta(minutes=settings.reminder_critical_minutes),
     )
 
@@ -150,16 +167,22 @@ async def test_failed_send_is_not_retried(
 
 
 async def test_reminder_without_post_is_sent_without_reply(
-    session: AsyncSession, engine: AsyncEngine, settings: Settings,
+    session: AsyncSession,
+    engine: AsyncEngine,
+    settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     ticket_id = await _new_ticket(session, settings)
     async with session_factory.begin() as s:
-        await s.execute(text("UPDATE tickets SET message_id = NULL WHERE id = :id"), {"id": ticket_id})
+        await s.execute(
+            text("UPDATE tickets SET message_id = NULL WHERE id = :id"), {"id": ticket_id}
+        )
     sender = FakeReminderSender()
 
     await svc.run_reminder_pass(
-        engine, settings=settings, sender=sender,
+        engine,
+        settings=settings,
+        sender=sender,
         now=NOW + timedelta(minutes=settings.reminder_critical_minutes),
     )
 

@@ -48,8 +48,14 @@ class FakeSender:
 async def _ticket(session: AsyncSession, settings: Settings) -> int:
     support = await add_user(session, 1000, "support")
     ticket = await ticket_svc.create_ticket(
-        session, settings=settings, actor_id=support, description="Нет связи",
-        priority="critical", request_id="REQ-7", tenant_id=None, now=NOW,
+        session,
+        settings=settings,
+        actor_id=support,
+        description="Нет связи",
+        priority="critical",
+        request_id="REQ-7",
+        tenant_id=None,
+        now=NOW,
     )
     await session.commit()
     return ticket.id
@@ -61,8 +67,14 @@ async def _take(
     dev = await _add_dev(factory)
     async with factory() as s:
         await ticket_svc.transition(
-            s, settings=settings, actor_id=dev, ticket_id=ticket_id, action=Action.TAKE,
-            expected_version=1, expected_status=Status.NEW, now=NOW,
+            s,
+            settings=settings,
+            actor_id=dev,
+            ticket_id=ticket_id,
+            action=Action.TAKE,
+            expected_version=1,
+            expected_status=Status.NEW,
+            now=NOW,
         )
         await s.commit()
 
@@ -94,8 +106,9 @@ async def test_first_sync_publishes_post_and_stores_message_id(
     ticket_id = await _ticket(session, settings)
     sender = FakeSender()
 
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
 
     ticket = await _row(session, ticket_id)
     assert ticket.message_id == 101
@@ -110,8 +123,9 @@ async def test_synced_ticket_is_not_selected_again(
 ) -> None:
     ticket_id = await _ticket(session, settings)
     sender = FakeSender()
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
 
     assert await find_out_of_sync(session) == []
 
@@ -137,13 +151,15 @@ async def test_business_change_edits_post_without_new_message(
 ) -> None:
     ticket_id = await _ticket(session, settings)
     sender = FakeSender()
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
     await _take(session_factory, settings, ticket_id)
 
     assert await find_out_of_sync(session) == [ticket_id]
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
 
     ticket = await _row(session, ticket_id)
     assert len(sender.sent) == 1
@@ -160,15 +176,17 @@ async def test_change_during_send_is_synced_again_with_rendered_version(
 ) -> None:
     ticket_id = await _ticket(session, settings)
     sender = FakeSender()
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
 
     async def take_while_sending() -> None:
         await _take(session_factory, settings, ticket_id)
 
     sender.on_edit = take_while_sending
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
 
     ticket = await _row(session, ticket_id)
     assert ticket.version == 2
@@ -176,8 +194,9 @@ async def test_change_during_send_is_synced_again_with_rendered_version(
     assert await find_out_of_sync(session) == [ticket_id]
 
     sender.on_edit = None
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
 
     assert "В работе" in sender.edited[-1][1]
     assert (await _row(session, ticket_id)).post_synced_version == 2
@@ -191,8 +210,9 @@ async def test_advisory_lock_is_released_after_error(
     sender.send_errors = [ValueError("boom")]
 
     with pytest.raises(ValueError):
-        await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                          retry_base_seconds=0)
+        await sync_ticket(
+            engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+        )
 
     assert await _lock_is_free(engine, ticket_id)
 
@@ -209,13 +229,15 @@ async def test_advisory_lock_is_released_on_cancel(
         await asyncio.Event().wait()
 
     sender.on_edit = hang
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
     await _take_via_engine(engine, settings, ticket_id)
 
     task = asyncio.create_task(
-        sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                    retry_base_seconds=0)
+        sync_ticket(
+            engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+        )
     )
     await started.wait()
     task.cancel()
@@ -239,8 +261,14 @@ async def test_busy_ticket_times_out_and_background_pass_skips_it(
     sender = FakeSender()
     try:
         with pytest.raises(LockTimeout):
-            await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                              lock_timeout_seconds=0.1, retry_base_seconds=0)
+            await sync_ticket(
+                engine,
+                settings=settings,
+                sender=sender,
+                ticket_id=ticket_id,
+                lock_timeout_seconds=0.1,
+                retry_base_seconds=0,
+            )
 
         count = await sync_pending(engine, settings=settings, sender=sender)
         assert count == 0
@@ -258,8 +286,14 @@ async def test_two_replicas_produce_one_post(
 
     await asyncio.gather(
         *(
-            sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                        lock_timeout_seconds=5, retry_base_seconds=0)
+            sync_ticket(
+                engine,
+                settings=settings,
+                sender=sender,
+                ticket_id=ticket_id,
+                lock_timeout_seconds=5,
+                retry_base_seconds=0,
+            )
             for _ in range(3)
         )
     )
@@ -276,13 +310,15 @@ async def test_deleted_post_is_published_again_and_message_id_replaced(
 ) -> None:
     ticket_id = await _ticket(session, settings)
     sender = FakeSender()
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
     await _take(session_factory, settings, ticket_id)
     sender.edit_errors = [PostUnavailable("message to edit not found")]
 
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
 
     ticket = await _row(session, ticket_id)
     assert len(sender.sent) == 2
@@ -297,8 +333,9 @@ async def test_rate_limit_is_retried_after_retry_after(
     sender = FakeSender()
     sender.send_errors = [RetryAfter(0)]
 
-    await sync_ticket(engine, settings=settings, sender=sender, ticket_id=ticket_id,
-                      retry_base_seconds=0)
+    await sync_ticket(
+        engine, settings=settings, sender=sender, ticket_id=ticket_id, retry_base_seconds=0
+    )
 
     assert len(sender.sent) == 1
 

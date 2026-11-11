@@ -4,9 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from support_bot.config import Settings
 from support_bot.domain.errors import Forbidden, RoleChangeBlocked
 from support_bot.domain.roles import Role
+from support_bot.domain.state_machine import Action, Status
 from support_bot.services import tickets as ticket_svc
 from support_bot.services import users as svc
-from support_bot.domain.state_machine import Action, Status
 from tests.helpers import NOW, add_user
 
 
@@ -65,13 +65,25 @@ async def test_role_change_is_blocked_while_user_holds_tickets(
     dev = await add_user(session, 801, "developer")
     admin = await add_user(session, 802, "admin")
     ticket = await ticket_svc.create_ticket(
-        session, settings=settings, actor_id=support, description="x", priority="low",
-        request_id="R", tenant_id=None, now=NOW,
+        session,
+        settings=settings,
+        actor_id=support,
+        description="x",
+        priority="low",
+        request_id="R",
+        tenant_id=None,
+        now=NOW,
     )
     await session.commit()
     await ticket_svc.transition(
-        session, settings=settings, actor_id=dev, ticket_id=ticket.id, action=Action.TAKE,
-        expected_version=1, expected_status=Status.NEW, now=NOW,
+        session,
+        settings=settings,
+        actor_id=dev,
+        ticket_id=ticket.id,
+        action=Action.TAKE,
+        expected_version=1,
+        expected_status=Status.NEW,
+        now=NOW,
     )
     await session.commit()
 
@@ -92,19 +104,37 @@ async def test_role_change_is_allowed_after_reassignment(
     new_dev = await add_user(session, 812, "developer")
     admin = await add_user(session, 813, "admin")
     ticket = await ticket_svc.create_ticket(
-        session, settings=settings, actor_id=support, description="x", priority="low",
-        request_id="R", tenant_id=None, now=NOW,
+        session,
+        settings=settings,
+        actor_id=support,
+        description="x",
+        priority="low",
+        request_id="R",
+        tenant_id=None,
+        now=NOW,
     )
     await session.commit()
     await ticket_svc.transition(
-        session, settings=settings, actor_id=dev, ticket_id=ticket.id, action=Action.TAKE,
-        expected_version=1, expected_status=Status.NEW, now=NOW,
+        session,
+        settings=settings,
+        actor_id=dev,
+        ticket_id=ticket.id,
+        action=Action.TAKE,
+        expected_version=1,
+        expected_status=Status.NEW,
+        now=NOW,
     )
     await session.commit()
     await ticket_svc.transition(
-        session, settings=settings, actor_id=admin, ticket_id=ticket.id,
-        action=Action.REASSIGN, expected_version=2, expected_status=Status.IN_PROGRESS,
-        target_user_id=new_dev, now=NOW,
+        session,
+        settings=settings,
+        actor_id=admin,
+        ticket_id=ticket.id,
+        action=Action.REASSIGN,
+        expected_version=2,
+        expected_status=Status.IN_PROGRESS,
+        target_user_id=new_dev,
+        now=NOW,
     )
     await session.commit()
 

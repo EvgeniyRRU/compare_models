@@ -80,7 +80,9 @@ def test_reopen_is_not_allowed_for_open_ticket() -> None:
 def test_only_admin_reassigns_and_status_is_kept() -> None:
     with pytest.raises(Forbidden):
         decide(Status.IN_PROGRESS, Action.REASSIGN, actor_role=Role.DEVELOPER, is_assignee=True)
-    assert decide(Status.WAITING_INFO, Action.REASSIGN, actor_role=Role.ADMIN) == Status.WAITING_INFO
+    assert (
+        decide(Status.WAITING_INFO, Action.REASSIGN, actor_role=Role.ADMIN) == Status.WAITING_INFO
+    )
 
 
 def test_reassign_is_not_allowed_for_new_or_final_ticket() -> None:

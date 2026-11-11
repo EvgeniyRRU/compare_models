@@ -19,8 +19,9 @@ async def _start(session: AsyncSession, user_id: int) -> svc.DraftState:
     return state
 
 
-async def _answer(session: AsyncSession, user: int, reply_to: int | None, text: str,
-                  now=NOW) -> svc.Outcome:
+async def _answer(
+    session: AsyncSession, user: int, reply_to: int | None, text: str, now=NOW
+) -> svc.Outcome:
     outcome = await svc.answer_text(
         session, user_id=user, reply_to_message_id=reply_to, text=text, now=now, ttl_hours=TTL
     )
@@ -28,9 +29,17 @@ async def _answer(session: AsyncSession, user: int, reply_to: int | None, text: 
     return outcome
 
 
-async def _press(session: AsyncSession, user: int, state: svc.DraftState, action: str,
-                 value: str | None = None, *, version: int | None = None,
-                 draft_id: UUID | None = None, settings: Settings) -> svc.Outcome:
+async def _press(
+    session: AsyncSession,
+    user: int,
+    state: svc.DraftState,
+    action: str,
+    value: str | None = None,
+    *,
+    version: int | None = None,
+    draft_id: UUID | None = None,
+    settings: Settings,
+) -> svc.Outcome:
     outcome = await svc.press(
         session,
         user_id=user,
@@ -48,14 +57,20 @@ async def _press(session: AsyncSession, user: int, state: svc.DraftState, action
 
 async def _bind_prompt(session: AsyncSession, state: svc.DraftState, message_id: int) -> None:
     ok = await svc.record_prompt(
-        session, draft_id=state.draft_id, version=state.version, step=state.step,
-        message_id=message_id, now=NOW,
+        session,
+        draft_id=state.draft_id,
+        version=state.version,
+        step=state.step,
+        message_id=message_id,
+        now=NOW,
     )
     await session.commit()
     assert ok
 
 
-async def _fill_until_confirm(session: AsyncSession, user: int, settings: Settings) -> svc.DraftState:
+async def _fill_until_confirm(
+    session: AsyncSession, user: int, settings: Settings
+) -> svc.DraftState:
     state = await _start(session, user)
     await _bind_prompt(session, state, 1)
     out = await _answer(session, user, 1, "Не работает отчёт")
@@ -148,8 +163,12 @@ async def test_late_prompt_send_does_not_overwrite_next_step_prompt(
 
     # a send of the step-1 question that finished late must not replace the step-2 prompt
     ok = await svc.record_prompt(
-        session, draft_id=state.draft_id, version=state.version, step=state.step,
-        message_id=999, now=NOW,
+        session,
+        draft_id=state.draft_id,
+        version=state.version,
+        step=state.step,
+        message_id=999,
+        now=NOW,
     )
     await session.commit()
 
@@ -189,7 +208,9 @@ async def test_concurrent_replies_to_one_prompt_apply_once(
 
     assert sorted(o.kind for o in outcomes) == ["advanced", "reprompt", "reprompt"]
     row = await session.scalar(select(TicketDraft))
-    assert row is not None and row.version == 2 and row.description in {"первый", "второй", "третий"}
+    assert (
+        row is not None and row.version == 2 and row.description in {"первый", "второй", "третий"}
+    )
 
 
 async def test_button_from_deleted_draft_cannot_confirm_new_one(
@@ -278,7 +299,9 @@ async def test_only_one_active_draft_per_user(session: AsyncSession, settings: S
     assert existing is not None and existing.draft_id == first.draft_id
 
 
-async def test_restart_replaces_draft_with_new_id(session: AsyncSession, settings: Settings) -> None:
+async def test_restart_replaces_draft_with_new_id(
+    session: AsyncSession, settings: Settings
+) -> None:
     user = await add_user(session, 15, "support")
     first = await _start(session, user)
 
@@ -308,14 +331,23 @@ async def test_draft_callbacks_fit_telegram_limit(settings: Settings) -> None:
     assert svc.parse_draft_callback(data) is not None
 
 
-async def test_draft_ttl_is_checked_on_press(session: AsyncSession, settings: Settings, engine: AsyncEngine) -> None:
+async def test_draft_ttl_is_checked_on_press(
+    session: AsyncSession, settings: Settings, engine: AsyncEngine
+) -> None:
     user = await add_user(session, 17, "support")
     state = await _start(session, user)
     later = NOW + timedelta(hours=TTL + 1)
 
     out = await svc.press(
-        session, user_id=user, draft_id=state.draft_id, version=state.version,
-        action="cancel", value=None, now=later, ttl_hours=TTL, settings=settings,
+        session,
+        user_id=user,
+        draft_id=state.draft_id,
+        version=state.version,
+        action="cancel",
+        value=None,
+        now=later,
+        ttl_hours=TTL,
+        settings=settings,
     )
     await session.commit()
 
