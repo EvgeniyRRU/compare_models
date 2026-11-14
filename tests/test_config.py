@@ -15,30 +15,7 @@ _REQUIRED_ENV = {
 
 # Every key the Settings model recognises, so ambient environment variables
 # cannot leak into (and destabilise) the default-value assertions below.
-_OPTIONAL_ENV_KEYS = (
-    "BOT_MODE",
-    "WEBHOOK_SECRET",
-    "WEBHOOK_URL",
-    "WEBHOOK_UPDATE_TIMEOUT",
-    "INIT_DATA_MAX_AGE",
-    "DRAFT_TTL_SECONDS",
-    "REMINDER_CRITICAL_SECONDS",
-    "REMINDER_HIGH_SECONDS",
-    "REMINDER_MEDIUM_SECONDS",
-    "REMINDER_LOW_SECONDS",
-    "REMINDER_POLL_INTERVAL",
-    "POST_SYNC_POLL_INTERVAL",
-    "ADVISORY_LOCK_TIMEOUT",
-    "APP_PORT",
-    "METRICS_PORT",
-    "LOG_LEVEL",
-    "LOG_FORMAT",
-    "SENTRY_DSN",
-    "SENTRY_ENVIRONMENT",
-    "PROCESSED_UPDATES_RETENTION",
-)
-
-_ALL_KEYS = (*_REQUIRED_ENV.keys(), *_OPTIONAL_ENV_KEYS)
+_ALL_KEYS = tuple(Settings.model_fields)
 
 
 @pytest.fixture

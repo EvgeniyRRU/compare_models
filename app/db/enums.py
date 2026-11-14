@@ -2,6 +2,25 @@
 
 from enum import StrEnum
 
+from sqlalchemy import Enum
+
+
+def str_enum[StrEnumT: StrEnum](enum_cls: type[StrEnumT], length: int = 20) -> Enum:
+    """Return a non-native ``Enum`` type: a ``VARCHAR`` column plus a CHECK.
+
+    ``native_enum=False`` keeps a plain text column (no PostgreSQL ENUM type),
+    and ``create_constraint=True`` emits the value-set CHECK constraint so the
+    database enforces the enum members, matching the project's text-column
+    convention. The constraint name comes from ``enum_cls.__name__.lower()``.
+    """
+    return Enum(
+        enum_cls,
+        native_enum=False,
+        length=length,
+        create_constraint=True,
+        values_callable=lambda members: [member.value for member in members],
+    )
+
 
 class Role(StrEnum):
     support = "support"

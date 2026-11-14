@@ -17,6 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.enums import Priority, TicketStatus, str_enum
 
 
 class Ticket(Base):
@@ -28,20 +29,12 @@ class Ticket(Base):
             name="description_length",
         ),
         CheckConstraint(
-            "priority IN ('critical', 'high', 'medium', 'low')",
-            name="priority_valid",
-        ),
-        CheckConstraint(
             "char_length(request_id) BETWEEN 1 AND 64",
             name="request_id_length",
         ),
         CheckConstraint(
             "tenant_id IS NULL OR char_length(tenant_id) <= 64",
             name="tenant_id_length",
-        ),
-        CheckConstraint(
-            "status IN ('new', 'in_progress', 'waiting_info', 'resolved', 'rejected', 'duplicate')",
-            name="status_valid",
         ),
         CheckConstraint(
             "status <> 'new' OR (assignee_id IS NULL AND taken_at IS NULL)",
@@ -57,21 +50,22 @@ class Ticket(Base):
             name="closed_at_matches_final",
         ),
         Index("ix_tickets_status_next_reminder_at", "status", "next_reminder_at"),
-        Index("ix_tickets_status", "status"),
         Index("ix_tickets_author_id", "author_id"),
         Index("ix_tickets_assignee_id", "assignee_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    author_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
+    author_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
     assignee_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
-    priority: Mapped[str] = mapped_column(String(20), nullable=False)
+    priority: Mapped[Priority] = mapped_column(str_enum(Priority), nullable=False)
     request_id: Mapped[str] = mapped_column(String(64), nullable=False)
     tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[TicketStatus] = mapped_column(str_enum(TicketStatus), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -1,8 +1,8 @@
 """create users, tickets, ticket_events, ticket_drafts, processed_updates
 
-Revision ID: db29a7082706
+Revision ID: 47d356fe93f3
 Revises: 
-Create Date: 2026-11-14 20:15:04.299855
+Create Date: 2026-11-14 20:41:17.021778
 
 """
 from collections.abc import Sequence
@@ -12,7 +12,7 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'db29a7082706'
+revision: str = '47d356fe93f3'
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -26,32 +26,31 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('update_id', name=op.f('pk_processed_updates'))
     )
+    op.create_index(op.f('ix_processed_updates_created_at'), 'processed_updates', ['created_at'], unique=False)
     op.create_table('users',
     sa.Column('id', sa.BigInteger(), sa.Identity(always=False), nullable=False),
     sa.Column('telegram_id', sa.BigInteger(), nullable=False),
     sa.Column('username', sa.String(length=255), nullable=True),
     sa.Column('full_name', sa.String(length=255), nullable=True),
-    sa.Column('role', sa.String(length=20), nullable=True),
+    sa.Column('role', sa.Enum('support', 'developer', 'admin', name='role', native_enum=False, create_constraint=True, length=20), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.CheckConstraint("role IN ('support', 'developer', 'admin')", name=op.f('ck_users_role_valid')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_users')),
     sa.UniqueConstraint('telegram_id', name=op.f('uq_users_telegram_id'))
     )
     op.create_table('ticket_drafts',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('user_id', sa.BigInteger(), nullable=False),
-    sa.Column('step', sa.String(length=20), nullable=False),
+    sa.Column('step', sa.Enum('description', 'priority', 'request_id', 'tenant_id', 'confirm', name='draftstep', native_enum=False, create_constraint=True, length=20), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('priority', sa.String(length=20), nullable=True),
+    sa.Column('priority', sa.Enum('critical', 'high', 'medium', 'low', name='priority', native_enum=False, create_constraint=True, length=20), nullable=True),
     sa.Column('request_id', sa.String(length=64), nullable=True),
     sa.Column('tenant_id', sa.String(length=64), nullable=True),
     sa.Column('version', sa.Integer(), server_default='1', nullable=False),
     sa.Column('prompt_message_id', sa.BigInteger(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.CheckConstraint("step IN ('description', 'priority', 'request_id', 'tenant_id', 'confirm')", name=op.f('ck_ticket_drafts_step_valid')),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_ticket_drafts_user_id_users')),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_ticket_drafts_user_id_users'), ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_ticket_drafts')),
     sa.UniqueConstraint('user_id', name=op.f('uq_ticket_drafts_user_id'))
     )
@@ -60,10 +59,10 @@ def upgrade() -> None:
     sa.Column('author_id', sa.BigInteger(), nullable=False),
     sa.Column('assignee_id', sa.BigInteger(), nullable=True),
     sa.Column('description', sa.Text(), nullable=False),
-    sa.Column('priority', sa.String(length=20), nullable=False),
+    sa.Column('priority', sa.Enum('critical', 'high', 'medium', 'low', name='priority', native_enum=False, create_constraint=True, length=20), nullable=False),
     sa.Column('request_id', sa.String(length=64), nullable=False),
     sa.Column('tenant_id', sa.String(length=64), nullable=True),
-    sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('status', sa.Enum('new', 'in_progress', 'waiting_info', 'resolved', 'rejected', 'duplicate', name='ticketstatus', native_enum=False, create_constraint=True, length=20), nullable=False),
     sa.Column('version', sa.Integer(), server_default='1', nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -73,25 +72,22 @@ def upgrade() -> None:
     sa.Column('message_id', sa.BigInteger(), nullable=True),
     sa.Column('post_synced_version', sa.Integer(), server_default='0', nullable=False),
     sa.CheckConstraint("(status IN ('resolved', 'rejected', 'duplicate')) = (closed_at IS NOT NULL)", name=op.f('ck_tickets_closed_at_matches_final')),
-    sa.CheckConstraint("priority IN ('critical', 'high', 'medium', 'low')", name=op.f('ck_tickets_priority_valid')),
     sa.CheckConstraint("status <> 'new' OR (assignee_id IS NULL AND taken_at IS NULL)", name=op.f('ck_tickets_new_has_no_assignee')),
-    sa.CheckConstraint("status IN ('new', 'in_progress', 'waiting_info', 'resolved', 'rejected', 'duplicate')", name=op.f('ck_tickets_status_valid')),
     sa.CheckConstraint("status NOT IN ('in_progress', 'waiting_info') OR (assignee_id IS NOT NULL AND taken_at IS NOT NULL)", name=op.f('ck_tickets_active_has_assignee')),
     sa.CheckConstraint('char_length(description) BETWEEN 1 AND 3000', name=op.f('ck_tickets_description_length')),
     sa.CheckConstraint('char_length(request_id) BETWEEN 1 AND 64', name=op.f('ck_tickets_request_id_length')),
     sa.CheckConstraint('tenant_id IS NULL OR char_length(tenant_id) <= 64', name=op.f('ck_tickets_tenant_id_length')),
-    sa.ForeignKeyConstraint(['assignee_id'], ['users.id'], name=op.f('fk_tickets_assignee_id_users')),
-    sa.ForeignKeyConstraint(['author_id'], ['users.id'], name=op.f('fk_tickets_author_id_users')),
+    sa.ForeignKeyConstraint(['assignee_id'], ['users.id'], name=op.f('fk_tickets_assignee_id_users'), ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['author_id'], ['users.id'], name=op.f('fk_tickets_author_id_users'), ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_tickets'))
     )
     op.create_index('ix_tickets_assignee_id', 'tickets', ['assignee_id'], unique=False)
     op.create_index('ix_tickets_author_id', 'tickets', ['author_id'], unique=False)
-    op.create_index('ix_tickets_status', 'tickets', ['status'], unique=False)
     op.create_index('ix_tickets_status_next_reminder_at', 'tickets', ['status', 'next_reminder_at'], unique=False)
     op.create_table('ticket_events',
     sa.Column('id', sa.BigInteger(), sa.Identity(always=False), nullable=False),
     sa.Column('ticket_id', sa.BigInteger(), nullable=False),
-    sa.Column('event_type', sa.String(length=30), nullable=False),
+    sa.Column('event_type', sa.Enum('created', 'taken', 'status_changed', 'abandoned', 'reassigned', 'reopened', name='ticketeventtype', native_enum=False, create_constraint=True, length=30), nullable=False),
     sa.Column('actor_id', sa.BigInteger(), nullable=False),
     sa.Column('old_status', sa.String(length=20), nullable=True),
     sa.Column('new_status', sa.String(length=20), nullable=True),
@@ -99,9 +95,8 @@ def upgrade() -> None:
     sa.Column('new_assignee_id', sa.BigInteger(), nullable=True),
     sa.Column('version', sa.Integer(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.CheckConstraint("event_type IN ('created', 'taken', 'status_changed', 'abandoned', 'reassigned', 'reopened')", name=op.f('ck_ticket_events_event_type_valid')),
-    sa.ForeignKeyConstraint(['actor_id'], ['users.id'], name=op.f('fk_ticket_events_actor_id_users')),
-    sa.ForeignKeyConstraint(['ticket_id'], ['tickets.id'], name=op.f('fk_ticket_events_ticket_id_tickets')),
+    sa.ForeignKeyConstraint(['actor_id'], ['users.id'], name=op.f('fk_ticket_events_actor_id_users'), ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['ticket_id'], ['tickets.id'], name=op.f('fk_ticket_events_ticket_id_tickets'), ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_ticket_events'))
     )
     op.create_index('ix_ticket_events_ticket_id_id', 'ticket_events', ['ticket_id', 'id'], unique=False)
@@ -114,11 +109,11 @@ def downgrade() -> None:
     op.drop_index('ix_ticket_events_ticket_id_id', table_name='ticket_events')
     op.drop_table('ticket_events')
     op.drop_index('ix_tickets_status_next_reminder_at', table_name='tickets')
-    op.drop_index('ix_tickets_status', table_name='tickets')
     op.drop_index('ix_tickets_author_id', table_name='tickets')
     op.drop_index('ix_tickets_assignee_id', table_name='tickets')
     op.drop_table('tickets')
     op.drop_table('ticket_drafts')
     op.drop_table('users')
+    op.drop_index(op.f('ix_processed_updates_created_at'), table_name='processed_updates')
     op.drop_table('processed_updates')
     # ### end Alembic commands ###

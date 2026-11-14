@@ -5,7 +5,6 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
-    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
@@ -17,25 +16,19 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.enums import DraftStep, Priority, str_enum
 
 
 class TicketDraft(Base):
     __tablename__ = "ticket_drafts"
 
-    __table_args__ = (
-        CheckConstraint(
-            "step IN ('description', 'priority', 'request_id', 'tenant_id', 'confirm')",
-            name="step_valid",
-        ),
-    )
-
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False, unique=True
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, unique=True
     )
-    step: Mapped[str] = mapped_column(String(20), nullable=False)
+    step: Mapped[DraftStep] = mapped_column(str_enum(DraftStep), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    priority: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    priority: Mapped[Priority | None] = mapped_column(str_enum(Priority), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")

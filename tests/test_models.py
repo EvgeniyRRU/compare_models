@@ -3,10 +3,11 @@
 from typing import Any
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Ticket, TicketEvent, User
+from app.db.models import ProcessedUpdate, Ticket, TicketDraft, TicketEvent, User
 
 
 async def create_user(session: AsyncSession, telegram_id: int, *, role: str | None = None) -> User:
@@ -100,3 +101,25 @@ async def test_invalid_event_type_rejected(session: AsyncSession) -> None:
         session,
         TicketEvent(ticket_id=ticket.id, actor_id=actor.id, event_type="bogus", version=1),
     )
+
+
+async def test_invalid_draft_step_rejected(session: AsyncSession) -> None:
+    user = await create_user(session, telegram_id=1001)
+    await expect_integrity_error(session, TicketDraft(user_id=user.id, step="bogus"))
+
+
+async def test_processed_update_insert_with_explicit_id(session: AsyncSession) -> None:
+    session.add(ProcessedUpdate(update_id=42))
+    await session.flush()
+    result = await session.execute(
+        text("SELECT update_id FROM processed_updates WHERE update_id = 42")
+    )
+    assert result.scalar_one() == 42
+
+
+async def test_processed_update_null_id_rejected(session: AsyncSession) -> None:
+    # Raw SQL avoids the ORM's "PK without a default" warning and tests the
+    # NOT NULL constraint directly.
+    with pytest.raises(IntegrityError):
+        await session.execute(text("INSERT INTO processed_updates (update_id) VALUES (NULL)"))
+    await session.rollback()
