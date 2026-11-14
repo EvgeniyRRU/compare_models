@@ -106,8 +106,8 @@ async def ticket_action_callback(update: Update, context: ContextTypes.DEFAULT_T
             await answer("Недостаточно прав", show_alert=True)
             return
 
+        await answer()  # close the spinner immediately; Telegram retries unanswered callbacks
         await _resync(ticket_id, client)
-        await answer()
     finally:
         # Guarantee the callback is answered exactly once so the client's spinner
         # never hangs (e.g. on an unexpected exception the error handler logs).

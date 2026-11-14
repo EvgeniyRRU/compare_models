@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from telegram import CallbackQuery, Update
 from telegram.ext import ContextTypes
 
-from app.bot.callbacks import encode_ticket_callback
-from app.bot.handlers.ticket_actions import ticket_action_callback
+from app.bot.callbacks import TICKET_ACTION_BY_CODE, encode_ticket_callback
+from app.bot.handlers.ticket_actions import _ACTION_METHODS, ticket_action_callback
 from app.db.enums import Priority, Role, TicketStatus
 from app.db.models import Ticket, User
 from app.services.state_machine import TicketAction
@@ -125,6 +125,11 @@ async def fresh_ticket(session: AsyncSession, ticket_id: int) -> Ticket:
     return (await session.execute(stmt)).scalars().one()
 
 
+def test_action_methods_cover_all_codes() -> None:
+    """The callback codec and the handler's action→method map must stay in lockstep."""
+    assert set(TICKET_ACTION_BY_CODE.values()) == set(_ACTION_METHODS)
+
+
 async def test_take_transitions_to_in_progress(session: AsyncSession) -> None:
     author = await mk_user(session, 1001, Role.support)
     actor = await mk_user(session, 1002, Role.developer)
@@ -150,17 +155,25 @@ async def test_abandon_returns_to_new(session: AsyncSession) -> None:
     await session.commit()
     ticket = await new_ticket(session, author)
 
-    await take(session, ticket_id=ticket.id, actor=actor, expected_version=1)
-    await session.commit()
-
     bot = FakeBot()
-    query = make_callback_query(bot, encode_ticket_callback(TicketAction.abandon, ticket.id, 2))
-    await ticket_action_callback(make_update(query), make_context(bot, actor))
+    # First transition through the handler: take -> in_progress, re-sync sends the post.
+    take_query = make_callback_query(bot, encode_ticket_callback(TicketAction.take, ticket.id, 1))
+    await ticket_action_callback(make_update(take_query), make_context(bot, actor))
+    assert len(bot.sent_messages) == 1
+    assert bot.edited_messages == []
+
+    # Second transition through the handler: abandon -> new, re-sync edits the post.
+    abandon_query = make_callback_query(
+        bot, encode_ticket_callback(TicketAction.abandon, ticket.id, 2)
+    )
+    await ticket_action_callback(make_update(abandon_query), make_context(bot, actor))
 
     fresh = await fresh_ticket(session, ticket.id)
     assert fresh.status is TicketStatus.new
     assert fresh.assignee_id is None
     assert fresh.version == 3
+    assert len(bot.edited_messages) == 1
+    assert len(bot.sent_messages) == 1  # still just the initial send, no re-send
 
 
 async def test_resolve_finalizes(session: AsyncSession) -> None:
@@ -169,17 +182,25 @@ async def test_resolve_finalizes(session: AsyncSession) -> None:
     await session.commit()
     ticket = await new_ticket(session, author)
 
-    await take(session, ticket_id=ticket.id, actor=actor, expected_version=1)
-    await session.commit()
-
     bot = FakeBot()
-    query = make_callback_query(bot, encode_ticket_callback(TicketAction.resolve, ticket.id, 2))
-    await ticket_action_callback(make_update(query), make_context(bot, actor))
+    # First transition through the handler: take -> in_progress, re-sync sends the post.
+    take_query = make_callback_query(bot, encode_ticket_callback(TicketAction.take, ticket.id, 1))
+    await ticket_action_callback(make_update(take_query), make_context(bot, actor))
+    assert len(bot.sent_messages) == 1
+    assert bot.edited_messages == []
+
+    # Second transition through the handler: resolve -> resolved, re-sync edits the post.
+    resolve_query = make_callback_query(
+        bot, encode_ticket_callback(TicketAction.resolve, ticket.id, 2)
+    )
+    await ticket_action_callback(make_update(resolve_query), make_context(bot, actor))
 
     fresh = await fresh_ticket(session, ticket.id)
     assert fresh.status is TicketStatus.resolved
     assert fresh.closed_at is not None
     assert fresh.version == 3
+    assert len(bot.edited_messages) == 1
+    assert len(bot.sent_messages) == 1  # still just the initial send, no re-send
 
 
 async def test_stale_version_alerts_changed(session: AsyncSession) -> None:
