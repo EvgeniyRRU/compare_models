@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: support
+      POSTGRES_PASSWORD: support
+      POSTGRES_DB: support
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support -d support"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      target: dev
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn support_bot.main:app --host 0.0.0.0 --port 8000 --reload"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://support:support@db:5432/support
+      BOT_MODE: polling
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+      - "9100:9100"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    command: ["pytest"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://support:support@db:5432/support_test
+      BOT_TOKEN: test-token
+      DEV_CHAT_ID: "-1001234567890"
+      LOG_FORMAT: console
+      METRICS_ENABLED: "false"
+      WORKERS_ENABLED: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+    name: rsb_pgdata

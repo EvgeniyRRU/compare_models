@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Обращения поддержки</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div>
+          <h1>Обращения</h1>
+          <div id="user-line" class="hint"></div>
+        </div>
+        <button id="refresh-button" class="icon-button" type="button" title="Обновить">
+          ⟳
+        </button>
+      </header>
+      <nav id="tabs" class="tabs"></nav>
+      <main id="content" class="content">
+        <div class="empty">Загрузка…</div>
+      </main>
+    </div>
+    <div id="toast" class="toast" hidden></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
