@@ -20,6 +20,9 @@ TICKET_ACTION_LABELS: dict[TicketAction, str] = {
 
 #: Which actions to offer for each actionable status. Every button is rendered
 #: for every viewer; the server enforces permissions when the press arrives.
+#: Mirrors ``state_machine.TRANSITIONS`` restricted to the coded (callback)
+#: actions — ``reopen``/``reassign`` are intentionally excluded (admin/Mini-App
+#: only). Keep this in sync with any future transition-table changes.
 _STATUS_ACTIONS: dict[TicketStatus, tuple[TicketAction, ...]] = {
     TicketStatus.new: (TicketAction.take,),
     TicketStatus.in_progress: (

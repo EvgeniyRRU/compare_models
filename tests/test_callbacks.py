@@ -1,10 +1,12 @@
 """Tests for the callback-data codec (pure, no database/Telegram)."""
 
 import uuid
+from typing import Literal
 
 import pytest
 
 from app.bot.callbacks import (
+    CODE_BY_TICKET_ACTION,
     MAX_CALLBACK_DATA,
     TICKET_ACTION_BY_CODE,
     decode_form_callback,
@@ -81,7 +83,7 @@ def test_form_priority_round_trip(priority: Priority) -> None:
 
 
 @pytest.mark.parametrize("action", ["skip", "ok", "no"])
-def test_form_simple_round_trip(action: str) -> None:
+def test_form_simple_round_trip(action: Literal["skip", "ok", "no"]) -> None:
     draft_id = uuid.uuid4()
     data = encode_form_callback(action, draft_id, 2)
     decoded = decode_form_callback(data)
@@ -122,3 +124,25 @@ def test_encoded_lengths_stay_within_limit() -> None:
     ]
     for data in encodings:
         assert len(data.encode("utf-8")) <= MAX_CALLBACK_DATA
+
+
+def test_encode_priority_requires_priority() -> None:
+    draft_id = uuid.uuid4()
+    with pytest.raises(ValueError):
+        encode_form_callback("priority", draft_id, 1, None)
+
+
+def test_encode_raises_when_over_limit() -> None:
+    with pytest.raises(ValueError):
+        encode_ticket_callback(TicketAction.take, ticket_id=1, version=10**60)
+
+
+@pytest.mark.parametrize("token", ["+1", "-5", "4_2", " 42 ", "١", "１２３"])
+def test_decode_rejects_non_strict_int_tokens(token: str) -> None:
+    assert decode_ticket_callback(f"t:t:{token}:1") is None
+    assert decode_ticket_callback(f"t:t:1:{token}") is None
+    assert decode_form_callback(f"f:skip:00000000000000000000000000000000:{token}") is None
+
+
+def test_code_maps_are_bijective() -> None:
+    assert len(CODE_BY_TICKET_ACTION) == len(TICKET_ACTION_BY_CODE)

@@ -8,6 +8,7 @@ payload can never crash the bot.
 
 import uuid
 from dataclasses import dataclass
+from typing import Literal
 
 from app.db.enums import Priority
 from app.services.state_machine import TicketAction
@@ -52,11 +53,23 @@ class FormCallback:
     priority: Priority | None = None  # set only when action == "priority"
 
 
+def _check_length(data: str) -> None:
+    if len(data.encode("utf-8")) > MAX_CALLBACK_DATA:
+        raise ValueError(f"callback_data exceeds {MAX_CALLBACK_DATA} bytes")
+
+
+def _parse_int(token: str) -> int | None:
+    """Parse a strict ASCII decimal token, rejecting signs/whitespace/unicodes."""
+    if not (token.isascii() and token.isdigit()):
+        return None
+    return int(token)
+
+
 def encode_ticket_callback(action: TicketAction, ticket_id: int, version: int) -> str:
     """Encode a ticket action into ``t:<code>:<ticket_id>:<version>``."""
     code = CODE_BY_TICKET_ACTION[action]
     data = f"t:{code}:{ticket_id}:{version}"
-    assert len(data.encode("utf-8")) <= MAX_CALLBACK_DATA
+    _check_length(data)
     return data
 
 
@@ -68,16 +81,15 @@ def decode_ticket_callback(data: str) -> TicketCallback | None:
     action = TICKET_ACTION_BY_CODE.get(parts[1])
     if action is None:
         return None
-    try:
-        ticket_id = int(parts[2])
-        version = int(parts[3])
-    except ValueError:
+    ticket_id = _parse_int(parts[2])
+    version = _parse_int(parts[3])
+    if ticket_id is None or version is None:
         return None
     return TicketCallback(action=action, ticket_id=ticket_id, version=version)
 
 
 def encode_form_callback(
-    action: str,
+    action: Literal["priority", "skip", "ok", "no"],
     draft_id: uuid.UUID,
     version: int,
     priority: Priority | None = None,
@@ -92,10 +104,12 @@ def encode_form_callback(
         if priority is None:
             raise ValueError("priority is required when action == 'priority'")
         token = priority.value
-    else:
+    elif action in ("skip", "ok", "no"):
         token = action
+    else:
+        raise ValueError(f"unknown form action: {action!r}")
     data = f"f:{token}:{draft_id.hex}:{version}"
-    assert len(data.encode("utf-8")) <= MAX_CALLBACK_DATA
+    _check_length(data)
     return data
 
 
@@ -105,9 +119,11 @@ def decode_form_callback(data: str) -> FormCallback | None:
     if len(parts) != 4 or parts[0] != "f":
         return None
     token = parts[1]
+    version = _parse_int(parts[3])
+    if version is None:
+        return None
     try:
         draft_id = uuid.UUID(hex=parts[2])
-        version = int(parts[3])
     except ValueError:
         return None
     if token in {"skip", "ok", "no"}:
