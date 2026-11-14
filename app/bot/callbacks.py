@@ -88,6 +88,41 @@ def decode_ticket_callback(data: str) -> TicketCallback | None:
     return TicketCallback(action=action, ticket_id=ticket_id, version=version)
 
 
+def encode_draft_menu_callback(
+    action: Literal["continue", "restart"],
+    draft_id: uuid.UUID,
+    version: int,
+) -> str:
+    """Encode a ``/new`` continue/restart menu button into ``m:<action>:<hex>:<version>``."""
+    data = f"m:{action}:{draft_id.hex}:{version}"
+    _check_length(data)
+    return data
+
+
+def decode_draft_menu_callback(
+    data: str,
+) -> tuple[Literal["continue", "restart"], uuid.UUID, int] | None:
+    """Decode a draft-menu callback, returning ``None`` when malformed."""
+    parts = data.split(":")
+    if len(parts) != 4 or parts[0] != "m":
+        return None
+    action: Literal["continue", "restart"]
+    if parts[1] == "continue":
+        action = "continue"
+    elif parts[1] == "restart":
+        action = "restart"
+    else:
+        return None
+    version = _parse_int(parts[3])
+    if version is None:
+        return None
+    try:
+        draft_id = uuid.UUID(hex=parts[2])
+    except ValueError:
+        return None
+    return action, draft_id, version
+
+
 def encode_form_callback(
     action: Literal["priority", "skip", "ok", "no"],
     draft_id: uuid.UUID,

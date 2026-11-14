@@ -8,6 +8,7 @@ import pytest
 from app.bot.keyboards import (
     TICKET_ACTION_LABELS,
     confirm_keyboard,
+    draft_menu_keyboard,
     priority_keyboard,
     tenant_id_keyboard,
     ticket_action_keyboard,
@@ -94,6 +95,17 @@ def test_waiting_info_keyboard_has_five_buttons() -> None:
 def test_final_status_keyboard_is_none(status: TicketStatus) -> None:
     ticket = make_ticket(status=status)
     assert ticket_action_keyboard(ticket) is None
+
+
+def test_draft_menu_keyboard() -> None:
+    draft = make_draft()
+
+    kb = draft_menu_keyboard(draft)
+    buttons = _buttons(kb)
+
+    assert [button.text for button in buttons] == ["Продолжить", "Начать заново"]
+    assert buttons[0].callback_data == f"m:continue:{draft.id.hex}:{draft.version}"
+    assert buttons[1].callback_data == f"m:restart:{draft.id.hex}:{draft.version}"
 
 
 def test_priority_keyboard() -> None:

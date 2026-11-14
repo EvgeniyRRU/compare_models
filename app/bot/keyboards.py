@@ -2,7 +2,11 @@
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.bot.callbacks import encode_form_callback, encode_ticket_callback
+from app.bot.callbacks import (
+    encode_draft_menu_callback,
+    encode_form_callback,
+    encode_ticket_callback,
+)
 from app.db.enums import Priority, TicketStatus
 from app.db.models import Ticket, TicketDraft
 from app.services.render import PRIORITY_LABELS
@@ -55,6 +59,24 @@ def ticket_action_keyboard(ticket: Ticket) -> InlineKeyboardMarkup | None:
         for action in actions
     ]
     return InlineKeyboardMarkup(inline_keyboard=[[button] for button in buttons])
+
+
+def draft_menu_keyboard(draft: TicketDraft) -> InlineKeyboardMarkup:
+    """Return the continue/restart buttons for an existing draft (``/new``)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Продолжить",
+                    callback_data=encode_draft_menu_callback("continue", draft.id, draft.version),
+                ),
+                InlineKeyboardButton(
+                    text="Начать заново",
+                    callback_data=encode_draft_menu_callback("restart", draft.id, draft.version),
+                ),
+            ]
+        ]
+    )
 
 
 def priority_keyboard(draft: TicketDraft) -> InlineKeyboardMarkup:

@@ -9,8 +9,10 @@ from app.bot.callbacks import (
     CODE_BY_TICKET_ACTION,
     MAX_CALLBACK_DATA,
     TICKET_ACTION_BY_CODE,
+    decode_draft_menu_callback,
     decode_form_callback,
     decode_ticket_callback,
+    encode_draft_menu_callback,
     encode_form_callback,
     encode_ticket_callback,
 )
@@ -121,9 +123,40 @@ def test_encoded_lengths_stay_within_limit() -> None:
         encode_form_callback("skip", draft_id, 999999),
         encode_form_callback("ok", draft_id, 999999),
         encode_form_callback("no", draft_id, 999999),
+        encode_draft_menu_callback("continue", draft_id, 999999),
+        encode_draft_menu_callback("restart", draft_id, 999999),
     ]
     for data in encodings:
         assert len(data.encode("utf-8")) <= MAX_CALLBACK_DATA
+
+
+@pytest.mark.parametrize("action", ["continue", "restart"])
+def test_draft_menu_round_trip(action: Literal["continue", "restart"]) -> None:
+    draft_id = uuid.uuid4()
+    data = encode_draft_menu_callback(action, draft_id, 7)
+    decoded = decode_draft_menu_callback(data)
+
+    assert decoded is not None
+    assert decoded[0] == action
+    assert decoded[1] == draft_id
+    assert decoded[2] == 7
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        "",
+        "m",
+        "x:continue:00000000000000000000000000000000:1",  # wrong prefix
+        "m:continue:00000000000000000000000000000000",  # wrong arity (too few)
+        "m:continue:00000000000000000000000000000000:1:2",  # wrong arity (too many)
+        "m:other:00000000000000000000000000000000:1",  # unknown action
+        "m:continue:notahex:1",  # bad uuid hex
+        "m:continue:00000000000000000000000000000000:x",  # bad int
+    ],
+)
+def test_malformed_draft_menu_callback_is_none(data: str) -> None:
+    assert decode_draft_menu_callback(data) is None
 
 
 def test_encode_priority_requires_priority() -> None:
