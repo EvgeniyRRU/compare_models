@@ -27,6 +27,7 @@ from app.services.draft_service import (
     set_priority,
     set_prompt_message_id,
 )
+from app.services.ticket_service import PermissionDenied
 
 
 async def mk_user(session: AsyncSession, telegram_id: int, role: Role | None = None) -> User:
@@ -363,7 +364,7 @@ async def test_set_prompt_message_id_no_version_bump_and_stale_step(session: Asy
     assert f2.prompt_message_id is None
 
 
-async def test_concurrent_save_description_one_succeeds(
+async def test_concurrent_save_description_exactly_one_succeeds(
     session: AsyncSession, engine: AsyncEngine
 ) -> None:
     user = await mk_user(session, 1001, Role.support)
@@ -371,14 +372,22 @@ async def test_concurrent_save_description_one_succeeds(
     draft = await new_draft(session, user)
     draft_id = draft.id
 
+    # Two independent sessions race to save the description at the same version:
+    # exactly one wins (bumping version 1 -> 2) and the other raises DraftChanged.
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as s1, factory() as s2:
-        first = await save_description(s1, draft_id=draft_id, expected_version=1, description="one")
-        await s1.commit()
-        assert first.version == 2
 
-        with pytest.raises(DraftChanged):
-            await save_description(s2, draft_id=draft_id, expected_version=1, description="two")
+    async def do_save(s: AsyncSession) -> TicketDraft:
+        result = await save_description(s, draft_id=draft_id, expected_version=1, description="one")
+        await s.commit()
+        return result
+
+    async with factory() as s1, factory() as s2:
+        results = await asyncio.gather(do_save(s1), do_save(s2), return_exceptions=True)
+
+    ok = [r for r in results if isinstance(r, TicketDraft)]
+    changed = [r for r in results if isinstance(r, DraftChanged)]
+    assert len(ok) == 1
+    assert len(changed) == 1
 
     f = await fresh_draft(session, draft_id)
     assert f.version == 2
@@ -418,6 +427,80 @@ async def test_concurrent_confirm_one_ticket(session: AsyncSession, engine: Asyn
     assert await session.scalar(select(TicketDraft.id).where(TicketDraft.id == draft_id)) is None
 
 
+async def test_confirm_stale_version_raises_draft_changed(session: AsyncSession) -> None:
+    user = await mk_user(session, 1001, Role.support)
+    await session.commit()
+    draft = await new_draft(session, user)
+    draft = await fill_draft(session, draft, tenant_id="tenant-1")  # version 5, step confirm
+    await session.commit()
+
+    with pytest.raises(DraftChanged):
+        await confirm(session, draft_id=draft.id, expected_version=4, author=user)
+
+    assert cast(int, await session.scalar(select(func.count()).select_from(Ticket))) == 0
+    f = await fresh_draft(session, draft.id)
+    assert f.version == 5
+    assert f.step is DraftStep.confirm
+
+
+async def test_confirm_wrong_step_raises_draft_changed(session: AsyncSession) -> None:
+    user = await mk_user(session, 1001, Role.support)
+    await session.commit()
+    draft = await new_draft(session, user)  # version 1, step description
+
+    with pytest.raises(DraftChanged):
+        await confirm(session, draft_id=draft.id, expected_version=1, author=user)
+
+    assert cast(int, await session.scalar(select(func.count()).select_from(Ticket))) == 0
+    f = await fresh_draft(session, draft.id)
+    assert f.version == 1
+    assert f.step is DraftStep.description
+
+
+async def test_confirm_foreign_author_raises_draft_not_found(session: AsyncSession) -> None:
+    owner = await mk_user(session, 1001, Role.support)
+    other = await mk_user(session, 1002, Role.support)
+    await session.commit()
+    draft = await new_draft(session, owner)
+    draft = await fill_draft(session, draft, tenant_id="tenant-1")  # version 5, step confirm
+    await session.commit()
+
+    with pytest.raises(DraftNotFound):
+        await confirm(session, draft_id=draft.id, expected_version=5, author=other)
+
+    assert cast(int, await session.scalar(select(func.count()).select_from(Ticket))) == 0
+    f = await fresh_draft(session, draft.id)
+    assert f.version == 5
+    assert f.step is DraftStep.confirm
+    assert f.user_id == owner.id
+
+
+async def test_confirm_rolls_back_when_create_ticket_raises(
+    session: AsyncSession, engine: AsyncEngine
+) -> None:
+    roleless = await mk_user(session, 1001)  # no role
+    await session.commit()
+    draft = await new_draft(session, roleless)
+    draft = await fill_draft(session, draft, tenant_id="tenant-1")  # version 5, step confirm
+    await session.commit()
+    draft_id = draft.id
+
+    # The draft service does not enforce role, so a roleless user can fill a draft;
+    # only ``create_ticket`` (inside ``confirm``) rejects them.
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as fresh:
+        with pytest.raises(PermissionDenied):
+            await confirm(fresh, draft_id=draft_id, expected_version=5, author=roleless)
+        await fresh.rollback()
+
+    # The guarded DELETE rolled back with the transaction: no draft is deleted
+    # without a ticket.
+    f = await fresh_draft(session, draft_id)
+    assert f.version == 5
+    assert f.step is DraftStep.confirm
+    assert cast(int, await session.scalar(select(func.count()).select_from(Ticket))) == 0
+
+
 async def test_cleanup_expired_drafts(session: AsyncSession) -> None:
     u1 = await mk_user(session, 1001, Role.support)
     u2 = await mk_user(session, 1002, Role.support)
@@ -440,3 +523,33 @@ async def test_cleanup_expired_drafts(session: AsyncSession) -> None:
     assert removed == 1
     assert await get_draft(session, old_draft.id) is None
     assert await get_draft(session, fresh_draft.id) is not None
+
+
+async def test_cleanup_expired_drafts_boundary_not_deleted(session: AsyncSession) -> None:
+    u1 = await mk_user(session, 1001, Role.support)
+    u2 = await mk_user(session, 1002, Role.support)
+    await session.commit()
+    at_cutoff = await new_draft(session, u1)
+    older = await new_draft(session, u2)
+
+    now = datetime.now(UTC)
+    ttl = 86400
+    # Exactly at the cutoff is NOT deleted (strictly less-than); slightly older IS.
+    await session.execute(
+        update(TicketDraft)
+        .where(TicketDraft.id == at_cutoff.id)
+        .values(created_at=now - timedelta(seconds=ttl))
+    )
+    await session.execute(
+        update(TicketDraft)
+        .where(TicketDraft.id == older.id)
+        .values(created_at=now - timedelta(seconds=ttl + 1))
+    )
+    await session.commit()
+
+    removed = await cleanup_expired_drafts(session, now=now, ttl_seconds=ttl)
+    await session.commit()
+
+    assert removed == 1
+    assert await get_draft(session, at_cutoff.id) is not None
+    assert await get_draft(session, older.id) is None

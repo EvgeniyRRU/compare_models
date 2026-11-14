@@ -64,7 +64,7 @@ async def get_draft(session: AsyncSession, draft_id: uuid.UUID) -> TicketDraft |
 
 
 async def create_draft(session: AsyncSession, *, user_id: int) -> TicketDraft:
-    """Insert a new draft at ``description`` and return it (caller flushed an id).
+    """Insert a new draft at ``description`` and return it (flushed so the UUID id is populated).
 
     The caller is expected to have already checked there is no active draft for
     this user; the ``UNIQUE(user_id)`` constraint backs that check up.
@@ -125,6 +125,9 @@ async def _step_update(
     A stale version or a wrong step (answering the wrong question) matches zero
     rows and raises :class:`DraftChanged` without changing anything.
     """
+    # NOTE: ``updated_at`` is intentionally NOT bumped here — this raw Core UPDATE
+    # bypasses the ORM ``onupdate``; a cross-cutting pass will add
+    # ``updated_at=func.now()`` to all business Core UPDATEs.
     result = await session.execute(
         update(TicketDraft)
         .where(
@@ -233,6 +236,8 @@ async def confirm(
     draft = await session.get(TicketDraft, draft_id, populate_existing=True)
     if draft is None:
         raise DraftNotFound(draft_id)
+    if draft.user_id != author.id:
+        raise DraftNotFound(draft_id)  # never leak or act on another user's draft
     if draft.version != expected_version or draft.step is not DraftStep.confirm:
         raise DraftChanged(draft_id)
     if draft.description is None or draft.priority is None or draft.request_id is None:
