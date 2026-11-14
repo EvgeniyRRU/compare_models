@@ -20,7 +20,7 @@ from app.bot.handlers.create import (
 )
 from app.db.enums import DraftStep, Priority, Role
 from app.db.models import Ticket, TicketDraft, User
-from app.services.draft_service import set_prompt_message_id
+from app.services.draft_service import create_draft, save_description, set_prompt_message_id
 
 CHAT_ID = 42
 
@@ -228,7 +228,6 @@ async def test_happy_path_end_to_end(session: AsyncSession) -> None:
 
 async def test_new_with_existing_draft_continue_and_restart(session: AsyncSession) -> None:
     user = await mk_user(session, 1001, Role.support)
-    from app.services.draft_service import create_draft
 
     draft = await create_draft(session, user_id=user.id)
     await session.commit()
@@ -375,6 +374,42 @@ async def test_stale_form_callback_alerts_changed(session: AsyncSession) -> None
     assert f.priority is None
     assert bot.answered_queries[-1]["text"] == "Черновик устарел, начните заново"
     assert bot.answered_queries[-1]["show_alert"] is True
+
+
+async def test_form_callback_rejects_foreign_draft_id(session: AsyncSession) -> None:
+    victim = await mk_user(session, 1001, Role.support)
+    attacker = await mk_user(session, 1002, Role.support)
+
+    # Victim has an in-progress draft at the priority step (version 2).
+    draft = await create_draft(session, user_id=victim.id)
+    await session.commit()
+    draft = await save_description(
+        session, draft_id=draft.id, expected_version=1, description="victim desc"
+    )
+    await session.commit()
+
+    victim_draft = await fresh_draft(session, draft.id)
+    assert victim_draft is not None
+    assert victim_draft.step is DraftStep.priority
+    assert victim_draft.version == 2
+
+    bot = FakeBot()
+    # Attacker presses a priority button carrying the victim's draft id + version.
+    await form_callback(
+        make_callback_update(bot, encode_form_callback("priority", draft.id, 2, Priority.low)),
+        make_context(bot, attacker),
+    )
+
+    # Rejected with an alert; the victim's draft is untouched.
+    assert bot.answered_queries[-1]["text"] == "Черновик не найден"
+    assert bot.answered_queries[-1]["show_alert"] is True
+    f = await fresh_draft(session, draft.id)
+    assert f is not None
+    assert f.user_id == victim.id
+    assert f.step is DraftStep.priority
+    assert f.version == 2
+    assert f.priority is None
+    assert f.description == "victim desc"
 
 
 async def test_cancel_deletes_draft(session: AsyncSession) -> None:

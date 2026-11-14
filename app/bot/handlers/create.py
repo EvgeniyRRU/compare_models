@@ -206,7 +206,8 @@ async def draft_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer(text=text, show_alert=show_alert)
 
     chat = update.effective_chat
-    if chat is None:
+    if chat is None or chat.type != Chat.PRIVATE:
+        await answer()
         return
 
     user = cast(dict[str, Any], context.user_data).get("user")
@@ -265,7 +266,8 @@ async def form_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.answer(text=text, show_alert=show_alert)
 
     chat = update.effective_chat
-    if chat is None:
+    if chat is None or chat.type != Chat.PRIVATE:
+        await answer()
         return
 
     user = cast(dict[str, Any], context.user_data).get("user")
@@ -286,6 +288,10 @@ async def form_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     await answer("Неверные данные кнопки", show_alert=True)
                     return
                 async with async_session_factory() as session:
+                    existing = await get_draft(session, decoded.draft_id)
+                    if existing is None or existing.user_id != user.id:
+                        await answer("Черновик не найден", show_alert=True)
+                        return
                     draft = await set_priority(
                         session,
                         draft_id=decoded.draft_id,
@@ -296,6 +302,10 @@ async def form_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 await _send_step_prompt(context, chat.id, draft)
             elif decoded.action == "skip":
                 async with async_session_factory() as session:
+                    existing = await get_draft(session, decoded.draft_id)
+                    if existing is None or existing.user_id != user.id:
+                        await answer("Черновик не найден", show_alert=True)
+                        return
                     draft = await save_tenant_id(
                         session,
                         draft_id=decoded.draft_id,
@@ -327,6 +337,10 @@ async def form_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 return
             else:  # "no"
                 async with async_session_factory() as session:
+                    existing = await get_draft(session, decoded.draft_id)
+                    if existing is None or existing.user_id != user.id:
+                        await answer("Черновик не найден", show_alert=True)
+                        return
                     await delete_draft(session, draft_id=decoded.draft_id)
                     await session.commit()
                 await answer("Создание отменено")
