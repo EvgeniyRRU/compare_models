@@ -73,6 +73,23 @@ async def _actor_role(session: AsyncSession, user_id: int) -> Role | None:
     )
 
 
+async def _lock_user_for_share(session: AsyncSession, user_id: int) -> Role | None:
+    """``SELECT ... FOR SHARE`` the user row and return its role.
+
+    ``FOR SHARE`` blocks a concurrent ``FOR UPDATE`` (a role change in
+    :mod:`app.services.role_service`) from committing between this role read and
+    the ticket's conditional ``UPDATE``, closing the race where a role downgrade
+    lands on an assignee mid-transition. The lock is held until the caller
+    commits (or rolls back) the surrounding transaction.
+    """
+    return cast(
+        Role | None,
+        await session.scalar(
+            select(User.role).where(User.id == user_id).with_for_update(read=True)
+        ),
+    )
+
+
 async def _load_ticket(session: AsyncSession, ticket_id: int) -> Ticket | None:
     # ``populate_existing=True`` forces a fresh SELECT so the ``status`` and
     # ``assignee_id`` used for the permission check are read from the same
@@ -230,6 +247,10 @@ async def take(
     expected_version: int,
 ) -> Ticket:
     """Take a ticket: ``new -> in_progress``, assigning it to ``actor``."""
+    # The taker becomes the assignee: lock their user row FOR SHARE so a
+    # concurrent role downgrade (FOR UPDATE) cannot commit until this ticket's
+    # conditional UPDATE is done.
+    await _lock_user_for_share(session, actor.id)
     return await _apply_transition(
         session,
         ticket_id=ticket_id,
@@ -398,7 +419,9 @@ async def reassign(
     expected_version: int,
 ) -> Ticket:
     """Reassign an active ticket to another ``developer``/``admin`` (``admin`` only)."""
-    new_assignee_role = await _actor_role(session, new_assignee.id)
+    # Lock the new assignee's row FOR SHARE and read their role atomically: this
+    # blocks a concurrent role downgrade (FOR UPDATE) from landing mid-reassign.
+    new_assignee_role = await _lock_user_for_share(session, new_assignee.id)
     if new_assignee_role not in (Role.developer, Role.admin):
         raise PermissionDenied("reassign")
     return await _apply_transition(

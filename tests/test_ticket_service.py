@@ -14,6 +14,7 @@ from app.services.ticket_service import (
     PermissionDenied,
     TicketAlreadyTaken,
     TicketChanged,
+    _lock_user_for_share,
     abandon,
     create_ticket,
     mark_duplicate,
@@ -581,6 +582,15 @@ async def test_roleless_cannot_create(session: AsyncSession) -> None:
 
     count = cast(int, await session.scalar(select(func.count()).select_from(Ticket)))
     assert count == 0
+
+
+async def test_lock_user_for_share_returns_role(session: AsyncSession) -> None:
+    developer = await mk_user(session, 1002, Role.developer)
+    await session.commit()
+
+    role = await _lock_user_for_share(session, developer.id)
+
+    assert role is Role.developer
 
 
 async def test_reassign_stale_version_raises_ticket_changed(session: AsyncSession) -> None:
