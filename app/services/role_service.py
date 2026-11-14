@@ -57,7 +57,12 @@ async def assign_role(
     if actor_role is not Role.admin:
         raise PermissionDenied("assign_role")
 
-    target = await session.scalar(select(User).where(User.id == target_user_id).with_for_update())
+    target = await session.scalar(
+        select(User)
+        .where(User.id == target_user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if target is None:
         raise UserNotFound(target_user_id)
 

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db.enums import Priority, Role, TicketStatus
 from app.db.models import Ticket, User
@@ -73,6 +73,30 @@ async def test_assign_nonexistent_user_raises(session: AsyncSession) -> None:
 
     with pytest.raises(UserNotFound):
         await assign_role(session, actor=admin, target_user_id=999999, new_role=Role.support)
+
+
+async def test_assign_role_reads_fresh_role_not_identity_map_cache(
+    session: AsyncSession, engine: AsyncEngine
+) -> None:
+    admin = await mk_user(session, 1001, Role.admin)
+    target = await mk_user(session, 1002, Role.support)
+    await session.commit()
+
+    # Prime session A's identity map with the (soon stale) role=support.
+    cached = await session.get(User, target.id)
+    assert cached is not None and cached.role is Role.support
+
+    # Session B upgrades the user to developer and hands them an active ticket.
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as other:
+        target_b = await other.get(User, target.id)
+        assert target_b is not None
+        target_b.role = Role.developer
+        await mk_active_ticket(other, target_b, TicketStatus.in_progress)
+        await other.commit()
+
+    with pytest.raises(RoleChangeBlocked):
+        await assign_role(session, actor=admin, target_user_id=target.id, new_role=None)
 
 
 async def test_downgrade_developer_to_support_without_active_tickets(session: AsyncSession) -> None:
