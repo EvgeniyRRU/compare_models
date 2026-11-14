@@ -68,8 +68,11 @@ async def advisory_lock(
             if blocking:
                 if timeout is not None:
                     # ``SET`` cannot take a bind parameter; inline the safe
-                    # integer millisecond value computed from ``timeout``.
-                    await conn.execute(text(f"SET LOCAL lock_timeout = {int(timeout * 1000)}"))
+                    # integer millisecond value computed from ``timeout``. Clamp
+                    # to >= 1ms: PostgreSQL treats ``lock_timeout = 0`` as "no
+                    # timeout", which would invert the caller's intent.
+                    ms = max(1, int(timeout * 1000))
+                    await conn.execute(text(f"SET LOCAL lock_timeout = {ms}"))
                 try:
                     await conn.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
                 except DBAPIError as exc:

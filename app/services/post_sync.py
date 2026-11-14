@@ -55,9 +55,12 @@ async def sync_ticket(
 ) -> None:
     """Synchronize one ticket's post, blocking on the advisory lock.
 
-    Called immediately after a create/business-change commit.
+    Called immediately after a create/business-change commit. On lock timeout or
+    a Telegram send/edit error this RAISES; the caller (Stage 5 bot layer) must
+    catch-and-log rather than fail the user request — the background loop will
+    pick the ticket up and re-sync.
     """
-    await _sync_one(
+    await sync_one(
         engine=engine,
         session_factory=session_factory,
         ticket_id=ticket_id,
@@ -67,7 +70,7 @@ async def sync_ticket(
     )
 
 
-async def _sync_one(
+async def sync_one(
     *,
     engine: AsyncEngine,
     session_factory: async_sessionmaker[AsyncSession],
@@ -113,6 +116,10 @@ async def _sync_one(
                 except PostUnavailable:
                     new_message_id = await client.send_post(text, reply_markup)
 
+            # At-least-once: if the send/edit above succeeded but this commit
+            # fails, ``message_id`` isn't persisted and the next sync re-sends,
+            # producing a rare duplicate post — acceptable for a dev chat. The
+            # advisory lock serializes updates per ticket.
             await session.execute(
                 update(Ticket)
                 .where(Ticket.id == ticket_id)

@@ -4,7 +4,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db.models import Ticket
-from app.services.post_sync import PostClient, PostRenderer, _sync_one, render_ticket_post
+from app.services.post_sync import PostClient, PostRenderer, render_ticket_post, sync_one
 
 
 async def find_unsynced_ticket_ids(session: AsyncSession, *, limit: int = 100) -> list[int]:
@@ -43,7 +43,7 @@ async def sync_pending(
 
     synced = 0
     for ticket_id in ticket_ids:
-        did_sync = await _sync_one(
+        did_sync = await sync_one(
             engine=engine,
             session_factory=session_factory,
             ticket_id=ticket_id,

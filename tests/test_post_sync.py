@@ -1,5 +1,6 @@
 """Tests for post synchronization (real PostgreSQL via the conftest fixtures)."""
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -267,3 +268,84 @@ async def test_advisory_lock_timeout(engine: AsyncEngine) -> None:
         with pytest.raises(AdvisoryLockTimeout):
             async with advisory_lock(engine, key, blocking=True, timeout=1):
                 pass
+
+
+async def test_advisory_lock_nonblocking_yields_none_when_held(engine: AsyncEngine) -> None:
+    key = 555_555
+    async with advisory_lock(engine, key, blocking=True) as holder:
+        assert holder is not None
+        async with advisory_lock(engine, key, blocking=False) as contender:
+            assert contender is None
+
+
+async def test_advisory_lock_released_on_cancel(engine: AsyncEngine) -> None:
+    key = 777_777
+    acquired = asyncio.Event()
+
+    async def holder() -> None:
+        async with advisory_lock(engine, key, blocking=True) as conn:
+            assert conn is not None
+            acquired.set()
+            await asyncio.Event().wait()  # suspend inside the lock until cancelled
+
+    task = asyncio.create_task(holder())
+    await asyncio.wait_for(acquired.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # A fresh connection can now take the lock: cancellation released it.
+    async with engine.connect() as conn:
+        got = (
+            await conn.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": key})
+        ).scalar_one()
+        assert got is True
+        await conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+
+
+async def test_sync_persists_updates_updated_at(
+    session: AsyncSession,
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    author = await mk_user(session, 1001, Role.support)
+    await session.commit()
+    ticket = await new_ticket(session, author)
+
+    before = (await fresh_ticket(session, ticket.id)).updated_at
+
+    await sync_ticket(
+        engine=engine, session_factory=session_factory, ticket_id=ticket.id, client=FakePostClient()
+    )
+
+    after = (await fresh_ticket(session, ticket.id)).updated_at
+    assert after > before
+
+
+async def test_find_unsynced_selects_stale_version(
+    session: AsyncSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    author = await mk_user(session, 1001, Role.support)
+    await session.commit()
+    ticket = await new_ticket(session, author)
+
+    # Give it a post (message_id set) but leave it stale: post_synced_version < version.
+    async with session_factory() as s:
+        await s.execute(
+            update(Ticket)
+            .where(Ticket.id == ticket.id)
+            .values(message_id=12345, post_synced_version=0)
+        )
+        await s.commit()
+
+    async with session_factory() as s:
+        assert await find_unsynced_ticket_ids(s) == [ticket.id]
+
+    # Bring post_synced_version up to version → no longer unsynced.
+    async with session_factory() as s:
+        await s.execute(update(Ticket).where(Ticket.id == ticket.id).values(post_synced_version=1))
+        await s.commit()
+
+    async with session_factory() as s:
+        assert await find_unsynced_ticket_ids(s) == []

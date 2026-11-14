@@ -68,5 +68,7 @@ def render_post_text(ticket: Ticket, *, author: User | None, assignee: User | No
 
     header = "\n".join(lines)
     separator = "\n\n"
-    budget = _MAX_POST_LENGTH - len(header) - len(separator)
+    # Defensive clamp: keep the invariant local rather than relying on the DB's
+    # field-length constraints to keep the header under the limit.
+    budget = max(0, _MAX_POST_LENGTH - len(header) - len(separator))
     return header + separator + _truncate(ticket.description, budget)
