@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rent-support-bot"
+version = "0.1.0"
+description = "Telegram bot for logging first-line-support tickets to a duty developer"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi~=0.162",
+    "uvicorn[standard]~=0.54",
+    "python-telegram-bot~=22.8",
+    "sqlalchemy[asyncio]~=2.1",
+    "asyncpg~=0.32",
+    "alembic~=1.20",
+    "pydantic~=2.14",
+    "pydantic-settings~=2.16",
+    "structlog~=26.1",
+    "sentry-sdk~=2.75",
+    "prometheus-client~=0.26",
+    "httpx~=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff~=0.17",
+    "mypy",
+    "pytest",
+    "pytest-asyncio~=1.5",
+    "pytest-cov",
+]
+test = [
+    "pytest",
+    "pytest-asyncio~=1.5",
+    "pytest-cov",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-ra"
