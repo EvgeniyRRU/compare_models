@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.config import settings
-from app.db.enums import Priority, Role, TicketStatus
+from app.db.enums import Priority, Role, TicketEventType, TicketStatus
 from app.db.models import Ticket, TicketEvent, User
 from app.services.ticket_service import (
     PermissionDenied,
@@ -47,6 +47,17 @@ async def event_count(session: AsyncSession, ticket_id: int) -> int:
             select(func.count()).select_from(TicketEvent).where(TicketEvent.ticket_id == ticket_id)
         ),
     )
+
+
+async def latest_event(session: AsyncSession, ticket_id: int) -> TicketEvent:
+    """Return the most recently written event for a ticket."""
+    stmt = (
+        select(TicketEvent)
+        .where(TicketEvent.ticket_id == ticket_id)
+        .order_by(TicketEvent.id.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().one()
 
 
 async def new_ticket(
@@ -144,6 +155,14 @@ async def test_full_cycle_bumps_version_and_writes_events(session: AsyncSession)
     assert ticket.assignee_id == developer.id
     assert await event_count(session, ticket.id) == 2
 
+    event = await latest_event(session, ticket.id)
+    assert event.event_type is TicketEventType.taken
+    assert event.old_status == "new"
+    assert event.new_status == "in_progress"
+    assert event.old_assignee_id is None
+    assert event.new_assignee_id == developer.id
+    assert event.version == 2
+
     ticket = await set_waiting_info(
         session, ticket_id=ticket.id, actor=developer, expected_version=2
     )
@@ -152,6 +171,14 @@ async def test_full_cycle_bumps_version_and_writes_events(session: AsyncSession)
     assert ticket.status is TicketStatus.waiting_info
     assert await event_count(session, ticket.id) == 3
 
+    event = await latest_event(session, ticket.id)
+    assert event.event_type is TicketEventType.status_changed
+    assert event.old_status == "in_progress"
+    assert event.new_status == "waiting_info"
+    assert event.old_assignee_id == developer.id
+    assert event.new_assignee_id == developer.id
+    assert event.version == 3
+
     ticket = await set_in_progress(
         session, ticket_id=ticket.id, actor=developer, expected_version=3
     )
@@ -159,6 +186,14 @@ async def test_full_cycle_bumps_version_and_writes_events(session: AsyncSession)
     assert ticket.version == 4
     assert ticket.status is TicketStatus.in_progress
     assert await event_count(session, ticket.id) == 4
+
+    event = await latest_event(session, ticket.id)
+    assert event.event_type is TicketEventType.status_changed
+    assert event.old_status == "waiting_info"
+    assert event.new_status == "in_progress"
+    assert event.old_assignee_id == developer.id
+    assert event.new_assignee_id == developer.id
+    assert event.version == 4
 
 
 async def test_one_transition_one_bump_one_event(session: AsyncSession) -> None:
@@ -237,6 +272,11 @@ async def test_take_race_atomicity_two_sessions(session: AsyncSession, engine: A
     ticket = await new_ticket(session, support)
     ticket_id = ticket.id
 
+    # Two independent sessions race for the same ``new`` ticket. Under a true
+    # concurrent interleaving the loser may see ``TicketChanged`` instead of
+    # ``TicketAlreadyTaken``, depending on whether the winner commits before the
+    # loser's 0-row re-read. Callers should treat both as "refresh": neither
+    # mutated the ticket.
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as s1, factory() as s2:
         first = await take(s1, ticket_id=ticket_id, actor=developer1, expected_version=1)
@@ -430,6 +470,14 @@ async def test_reassign_changes_assignee_and_bumps_version(session: AsyncSession
     assert ticket.version == 3
     assert await event_count(session, ticket.id) == 3
 
+    event = await latest_event(session, ticket.id)
+    assert event.event_type is TicketEventType.reassigned
+    assert event.old_status == "in_progress"
+    assert event.new_status == "in_progress"
+    assert event.old_assignee_id == developer1.id
+    assert event.new_assignee_id == developer2.id
+    assert event.version == 3
+
 
 async def test_reject_and_duplicate_finalize(session: AsyncSession) -> None:
     support = await mk_user(session, 1001, Role.support)
@@ -456,3 +504,100 @@ async def test_reject_and_duplicate_finalize(session: AsyncSession) -> None:
     await session.commit()
     assert ticket.status is TicketStatus.duplicate
     assert ticket.closed_at is not None
+
+
+async def test_denied_resolve_leaves_no_side_effects(session: AsyncSession) -> None:
+    support = await mk_user(session, 1001, Role.support)
+    developer1 = await mk_user(session, 1002, Role.developer)
+    developer2 = await mk_user(session, 1003, Role.developer)
+    await session.commit()
+    ticket = await new_ticket(session, support)
+    await take(session, ticket_id=ticket.id, actor=developer1, expected_version=1)
+    await session.commit()
+
+    before = await fresh_ticket(session, ticket.id)
+    events_before = await event_count(session, ticket.id)
+
+    with pytest.raises(PermissionDenied):
+        await resolve(session, ticket_id=ticket.id, actor=developer2, expected_version=2)
+
+    after = await fresh_ticket(session, ticket.id)
+    assert after.version == before.version
+    assert after.status is before.status
+    assert after.assignee_id == before.assignee_id
+    assert after.closed_at == before.closed_at
+    assert await event_count(session, ticket.id) == events_before
+
+
+async def test_non_assignee_cannot_set_waiting_info(session: AsyncSession) -> None:
+    support = await mk_user(session, 1001, Role.support)
+    developer1 = await mk_user(session, 1002, Role.developer)
+    developer2 = await mk_user(session, 1003, Role.developer)
+    await session.commit()
+    ticket = await new_ticket(session, support)
+    await take(session, ticket_id=ticket.id, actor=developer1, expected_version=1)
+    await session.commit()
+
+    with pytest.raises(PermissionDenied):
+        await set_waiting_info(session, ticket_id=ticket.id, actor=developer2, expected_version=2)
+
+
+async def test_non_assignee_cannot_set_in_progress(session: AsyncSession) -> None:
+    support = await mk_user(session, 1001, Role.support)
+    developer1 = await mk_user(session, 1002, Role.developer)
+    developer2 = await mk_user(session, 1003, Role.developer)
+    await session.commit()
+    ticket = await new_ticket(session, support)
+    await take(session, ticket_id=ticket.id, actor=developer1, expected_version=1)
+    await session.commit()
+    await set_waiting_info(session, ticket_id=ticket.id, actor=developer1, expected_version=2)
+    await session.commit()
+
+    with pytest.raises(PermissionDenied):
+        await set_in_progress(session, ticket_id=ticket.id, actor=developer2, expected_version=3)
+
+
+async def test_non_assignee_cannot_abandon(session: AsyncSession) -> None:
+    support = await mk_user(session, 1001, Role.support)
+    developer1 = await mk_user(session, 1002, Role.developer)
+    developer2 = await mk_user(session, 1003, Role.developer)
+    await session.commit()
+    ticket = await new_ticket(session, support)
+    await take(session, ticket_id=ticket.id, actor=developer1, expected_version=1)
+    await session.commit()
+
+    with pytest.raises(PermissionDenied):
+        await abandon(session, ticket_id=ticket.id, actor=developer2, expected_version=2)
+
+
+async def test_roleless_cannot_create(session: AsyncSession) -> None:
+    roleless = await mk_user(session, 1001)
+    await session.commit()
+
+    with pytest.raises(PermissionDenied):
+        await create_ticket(
+            session, author=roleless, priority=Priority.low, description="d", request_id="REQ-1"
+        )
+
+    count = cast(int, await session.scalar(select(func.count()).select_from(Ticket)))
+    assert count == 0
+
+
+async def test_reassign_stale_version_raises_ticket_changed(session: AsyncSession) -> None:
+    support = await mk_user(session, 1001, Role.support)
+    developer1 = await mk_user(session, 1002, Role.developer)
+    developer2 = await mk_user(session, 1003, Role.developer)
+    admin = await mk_user(session, 1004, Role.admin)
+    await session.commit()
+    ticket = await new_ticket(session, support)
+    await take(session, ticket_id=ticket.id, actor=developer1, expected_version=1)
+    await session.commit()
+
+    with pytest.raises(TicketChanged):
+        await reassign(
+            session, ticket_id=ticket.id, actor=admin, new_assignee=developer2, expected_version=1
+        )
+
+    t = await fresh_ticket(session, ticket.id)
+    assert t.assignee_id == developer1.id
+    assert t.version == 2

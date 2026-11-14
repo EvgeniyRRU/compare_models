@@ -60,6 +60,29 @@ def transition(from_status: TicketStatus, action: TicketAction) -> TicketStatus:
         ) from None
 
 
+def source_statuses(action: TicketAction) -> set[TicketStatus]:
+    """Return the set of statuses ``action`` may legally be applied from."""
+    return {from_status for from_status, a in TRANSITIONS if a is action}
+
+
+def target_status(action: TicketAction) -> TicketStatus | None:
+    """Return the single status ``action`` produces, or ``None`` if unchanged.
+
+    ``reassign`` is the only action whose transitions map each source status to
+    itself (``in_progress -> in_progress``, ``waiting_info -> waiting_info``),
+    so it has no single target and is reported as ``None`` ("status unchanged").
+    Every other action maps all of its source statuses to one target.
+    """
+    if action is TicketAction.reassign:
+        return None
+    targets = {to for (from_status, a), to in TRANSITIONS.items() if a is action}
+    if len(targets) != 1:
+        raise ValueError(
+            f"action {action.value} has no single target status: {sorted(t.value for t in targets)}"
+        )
+    return targets.pop()
+
+
 def is_action_allowed(
     action: TicketAction,
     from_status: TicketStatus,

@@ -24,11 +24,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.enums import Priority, Role, TicketEventType, TicketStatus
 from app.db.models import Ticket, TicketEvent, User
-from app.services.state_machine import TicketAction, is_action_allowed
+from app.services.state_machine import (
+    TicketAction,
+    is_action_allowed,
+    source_statuses,
+    target_status,
+)
 
 
 class PermissionDenied(Exception):
     """The actor is not allowed to perform the requested action."""
+
+    def __init__(self, action: str, message: str = "Недостаточно прав") -> None:
+        self.action = action
+        super().__init__(f"{message}: {action}")
 
 
 class TicketChanged(Exception):
@@ -51,6 +60,11 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _next_reminder_at(priority: Priority) -> datetime:
+    """Compute the next reminder deadline for a ticket of the given priority."""
+    return _now() + timedelta(seconds=settings.reminder_interval_seconds(priority))
+
+
 async def _actor_role(session: AsyncSession, user_id: int) -> Role | None:
     """Read the user's role fresh from the database (never cached)."""
     return cast(
@@ -60,7 +74,10 @@ async def _actor_role(session: AsyncSession, user_id: int) -> Role | None:
 
 
 async def _load_ticket(session: AsyncSession, ticket_id: int) -> Ticket | None:
-    return await session.get(Ticket, ticket_id)
+    # ``populate_existing=True`` forces a fresh SELECT so the ``status`` and
+    # ``assignee_id`` used for the permission check are read from the same
+    # row/version that the conditional UPDATE below guards against.
+    return await session.get(Ticket, ticket_id, populate_existing=True)
 
 
 async def _conditional_update(
@@ -68,7 +85,7 @@ async def _conditional_update(
     *,
     ticket_id: int,
     expected_version: int,
-    expected_statuses: tuple[TicketStatus, ...],
+    expected_statuses: set[TicketStatus],
     values: dict[str, Any],
 ) -> Ticket | None:
     """Run the optimistic-concurrency ``UPDATE ... RETURNING``; ``None`` on miss."""
@@ -77,7 +94,7 @@ async def _conditional_update(
         .where(
             Ticket.id == ticket_id,
             Ticket.version == expected_version,
-            Ticket.status.in_(expected_statuses),
+            Ticket.status.in_(tuple(expected_statuses)),
         )
         .values(version=Ticket.version + 1, **values)
         .returning(Ticket),
@@ -92,22 +109,29 @@ async def _apply_transition(
     actor: User,
     action: TicketAction,
     expected_version: int,
-    expected_statuses: tuple[TicketStatus, ...],
-    target_status: TicketStatus | None,
     event_type: TicketEventType,
     extra_values: dict[str, Any],
     set_next_reminder: bool = False,
 ) -> Ticket:
     """Permission check + conditional UPDATE + event insert, atomically.
 
-    ``target_status`` is ``None`` for actions that leave the status unchanged
-    (``reassign``). ``set_next_reminder`` recomputes ``next_reminder_at`` from
-    the ticket's priority (used when re-entering ``new``).
+    The source/target statuses are derived from the transition table in
+    :mod:`app.services.state_machine` (``source_statuses``/``target_status``),
+    so the service never duplicates the state machine's graph.
+    ``set_next_reminder`` recomputes ``next_reminder_at`` from the ticket's
+    priority (used when re-entering ``new``).
     """
     role = await _actor_role(session, actor.id)
     ticket = await _load_ticket(session, ticket_id)
     if ticket is None:
         raise TicketChanged(ticket_id)
+
+    # Invariant: the permission read is consistent with the guarded version.
+    # ``_load_ticket`` reads with ``populate_existing=True``, so ``ticket.status``
+    # and ``ticket.assignee_id`` reflect the row at the same ``version`` that
+    # ``_conditional_update`` guards with ``version = expected_version``. If that
+    # row has since changed, the guarded UPDATE matches zero rows and we fail
+    # without committing.
     if not is_action_allowed(action, ticket.status, role, ticket.assignee_id == actor.id):
         raise PermissionDenied(action.value)
 
@@ -116,20 +140,23 @@ async def _apply_transition(
 
     values = dict(extra_values)
     if set_next_reminder:
-        values["next_reminder_at"] = _now() + timedelta(
-            seconds=settings.reminder_interval_seconds(ticket.priority)
-        )
-    if target_status is not None:
-        values["status"] = target_status
+        values["next_reminder_at"] = _next_reminder_at(ticket.priority)
+    target = target_status(action)
+    if target is not None:
+        values["status"] = target
 
     updated = await _conditional_update(
         session,
         ticket_id=ticket_id,
         expected_version=expected_version,
-        expected_statuses=expected_statuses,
+        expected_statuses=source_statuses(action),
         values=values,
     )
     if updated is None:
+        # ``take`` is the only action whose stale-button failure is surfaced as
+        # "already taken" rather than a generic "changed". Its permission is
+        # role-only (not assignee-dependent), so a 0-row miss here cannot be a
+        # permission problem: re-read the current status to distinguish the two.
         if action is TicketAction.take:
             current_status = cast(
                 TicketStatus | None,
@@ -176,7 +203,7 @@ async def create_ticket(
         tenant_id=tenant_id,
         status=TicketStatus.new,
         version=1,
-        next_reminder_at=_now() + timedelta(seconds=settings.reminder_interval_seconds(priority)),
+        next_reminder_at=_next_reminder_at(priority),
     )
     session.add(ticket)
     await session.flush()
@@ -209,8 +236,6 @@ async def take(
         actor=actor,
         action=TicketAction.take,
         expected_version=expected_version,
-        expected_statuses=(TicketStatus.new,),
-        target_status=TicketStatus.in_progress,
         event_type=TicketEventType.taken,
         extra_values={"assignee_id": actor.id, "taken_at": _now(), "next_reminder_at": None},
     )
@@ -230,8 +255,6 @@ async def set_waiting_info(
         actor=actor,
         action=TicketAction.to_waiting,
         expected_version=expected_version,
-        expected_statuses=(TicketStatus.in_progress,),
-        target_status=TicketStatus.waiting_info,
         event_type=TicketEventType.status_changed,
         extra_values={},
     )
@@ -251,8 +274,6 @@ async def set_in_progress(
         actor=actor,
         action=TicketAction.to_progress,
         expected_version=expected_version,
-        expected_statuses=(TicketStatus.waiting_info,),
-        target_status=TicketStatus.in_progress,
         event_type=TicketEventType.status_changed,
         extra_values={},
     )
@@ -264,7 +285,6 @@ async def _finalize(
     ticket_id: int,
     actor: User,
     action: TicketAction,
-    target_status: TicketStatus,
     expected_version: int,
 ) -> Ticket:
     return await _apply_transition(
@@ -273,10 +293,8 @@ async def _finalize(
         actor=actor,
         action=action,
         expected_version=expected_version,
-        expected_statuses=(TicketStatus.in_progress, TicketStatus.waiting_info),
-        target_status=target_status,
         event_type=TicketEventType.status_changed,
-        extra_values={"closed_at": _now()},
+        extra_values={"closed_at": _now(), "next_reminder_at": None},
     )
 
 
@@ -293,7 +311,6 @@ async def resolve(
         ticket_id=ticket_id,
         actor=actor,
         action=TicketAction.resolve,
-        target_status=TicketStatus.resolved,
         expected_version=expected_version,
     )
 
@@ -311,7 +328,6 @@ async def reject(
         ticket_id=ticket_id,
         actor=actor,
         action=TicketAction.reject,
-        target_status=TicketStatus.rejected,
         expected_version=expected_version,
     )
 
@@ -329,7 +345,6 @@ async def mark_duplicate(
         ticket_id=ticket_id,
         actor=actor,
         action=TicketAction.duplicate,
-        target_status=TicketStatus.duplicate,
         expected_version=expected_version,
     )
 
@@ -348,8 +363,6 @@ async def abandon(
         actor=actor,
         action=TicketAction.abandon,
         expected_version=expected_version,
-        expected_statuses=(TicketStatus.in_progress, TicketStatus.waiting_info),
-        target_status=TicketStatus.new,
         event_type=TicketEventType.abandoned,
         extra_values={"assignee_id": None, "taken_at": None},
         set_next_reminder=True,
@@ -370,8 +383,6 @@ async def reopen(
         actor=actor,
         action=TicketAction.reopen,
         expected_version=expected_version,
-        expected_statuses=(TicketStatus.resolved, TicketStatus.rejected, TicketStatus.duplicate),
-        target_status=TicketStatus.new,
         event_type=TicketEventType.reopened,
         extra_values={"assignee_id": None, "taken_at": None, "closed_at": None},
         set_next_reminder=True,
@@ -396,8 +407,6 @@ async def reassign(
         actor=actor,
         action=TicketAction.reassign,
         expected_version=expected_version,
-        expected_statuses=(TicketStatus.in_progress, TicketStatus.waiting_info),
-        target_status=None,  # status unchanged
         event_type=TicketEventType.reassigned,
         extra_values={"assignee_id": new_assignee.id, "taken_at": _now()},
     )

@@ -4,9 +4,12 @@ import pytest
 
 from app.db.enums import Role, TicketStatus
 from app.services.state_machine import (
+    TRANSITIONS,
     TicketAction,
     can_transition,
     is_action_allowed,
+    source_statuses,
+    target_status,
     transition,
 )
 
@@ -49,6 +52,22 @@ def test_no_transitions_outside_table() -> None:
 def test_transition_raises_for_unknown_action() -> None:
     with pytest.raises(ValueError):
         transition(TicketStatus.new, TicketAction.resolve)
+
+
+def test_source_statuses_match_table() -> None:
+    for action in TicketAction:
+        expected = {from_status for from_status, a in TRANSITIONS if a is action}
+        assert source_statuses(action) == expected
+
+
+def test_target_status_match_table() -> None:
+    for action in TicketAction:
+        targets = {to for (from_status, a), to in TRANSITIONS.items() if a is action}
+        if action is TicketAction.reassign:
+            assert target_status(action) is None
+        else:
+            assert len(targets) == 1
+            assert target_status(action) in targets
 
 
 @pytest.mark.parametrize(

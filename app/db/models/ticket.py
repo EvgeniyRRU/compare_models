@@ -63,6 +63,8 @@ class Ticket(Base):
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     priority: Mapped[Priority] = mapped_column(str_enum(Priority), nullable=False)
+    # ``request_id`` is intentionally NOT unique: the spec only requires non-empty
+    # and length <= 64, so duplicate external reference ids are allowed.
     request_id: Mapped[str] = mapped_column(String(64), nullable=False)
     tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[TicketStatus] = mapped_column(str_enum(TicketStatus), nullable=False)
