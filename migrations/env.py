@@ -15,7 +15,10 @@ from app.db.base import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # ``disable_existing_loggers=False`` keeps application loggers (e.g.
+    # ``app.bot.*``) enabled after migrations run, so ``caplog``-based tests
+    # can still observe log output in the same process.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Callers (e.g. the test suite) may pass an explicit URL via
 # ``config.set_main_option("sqlalchemy.url", ...)``; otherwise fall back to the
