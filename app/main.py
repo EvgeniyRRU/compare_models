@@ -10,14 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.db.session import engine as default_engine
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Placeholder: the bot lifecycle and background tasks are wired up in later stages.
-    yield
-
-
 def create_app(engine: AsyncEngine | None = None) -> FastAPI:
     db_engine = engine if engine is not None else default_engine
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # Placeholder: the bot lifecycle and background tasks are wired up in later stages.
+        yield
+        await db_engine.dispose()
 
     app = FastAPI(title="Rent Support Bot", lifespan=lifespan)
 
