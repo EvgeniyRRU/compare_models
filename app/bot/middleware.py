@@ -2,7 +2,8 @@
 
 from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -23,17 +24,30 @@ async def register_user_middleware(update: Update, context: ContextTypes.DEFAULT
         return
 
     async with async_session_factory() as session:
-        db_user = await session.scalar(select(User).where(User.telegram_id == user.id))
-        if db_user is None:
-            db_user = User(
-                telegram_id=user.id,
-                username=user.username,
-                full_name=user.full_name,
+        db_user = (
+            await session.scalars(
+                pg_insert(User)
+                .values(telegram_id=user.id, username=user.username, full_name=user.full_name)
+                .on_conflict_do_update(
+                    index_elements=[User.telegram_id],
+                    set_={
+                        "username": user.username,
+                        "full_name": user.full_name,
+                        "updated_at": func.now(),  # Core upsert bypasses ORM onupdate
+                    },
+                    where=or_(
+                        User.username.is_distinct_from(user.username),
+                        User.full_name.is_distinct_from(user.full_name),
+                    ),
+                )
+                .returning(User)
             )
-            session.add(db_user)
-        elif db_user.username != user.username or db_user.full_name != user.full_name:
-            db_user.username = user.username
-            db_user.full_name = user.full_name
+        ).one_or_none()
+        if db_user is None:
+            # The row already exists and is unchanged (or was concurrently
+            # created): the ``WHERE`` clause turned ``ON CONFLICT`` into a no-op,
+            # so ``RETURNING`` yields nothing. Re-read the committed row.
+            db_user = await session.scalar(select(User).where(User.telegram_id == user.id))
         await session.commit()
 
     cast(dict[str, Any], context.user_data)["user"] = db_user

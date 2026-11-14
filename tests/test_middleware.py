@@ -1,5 +1,6 @@
 """Tests for the user-identification middleware (real PostgreSQL)."""
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -105,3 +106,21 @@ async def test_noop_without_effective_user(session: AsyncSession) -> None:
     count = await session.scalar(select(func.count()).select_from(User))
     assert count == 0
     assert "user" not in user_data
+
+
+async def test_concurrent_first_time_registration_is_single_row(session: AsyncSession) -> None:
+    tg1 = TgUser(id=999, first_name="Alice", is_bot=False, username="alice")
+    tg2 = TgUser(id=999, first_name="Alice", is_bot=False, username="alice")
+
+    context1, _ = make_context()
+    context2, _ = make_context()
+
+    # Two concurrent first-time updates for a brand-new user must not race:
+    # the upsert collapses them into a single row without raising.
+    await asyncio.gather(
+        register_user_middleware(make_update(tg1), context1),
+        register_user_middleware(make_update(tg2), context2),
+    )
+
+    rows = (await session.scalars(select(User).where(User.telegram_id == 999))).all()
+    assert len(rows) == 1
