@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from telegram import Update
@@ -28,12 +30,37 @@ from app.config import settings
 from app.db.session import engine as default_engine
 from app.db.session import make_session_factory
 from app.logging import bind_contextvars, clear_contextvars, setup_logging
+from app.metrics import http_latency, http_requests
 from app.monitoring import init_sentry
 from app.webhook import router as webhook_router
 
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+async def _serve_metrics(
+    session_factory: Any,
+    host: str = "0.0.0.0",
+    port: int | None = None,
+) -> Any:
+    """Start a bare-metal asyncio TCP server serving ``/metrics``."""
+    from app.metrics import refresh_open_tickets_gauge
+
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        async with session_factory() as session:
+            await refresh_open_tickets_gauge(session)
+        data = generate_latest(REGISTRY)
+        writer.write(b"HTTP/1.1 200 OK\r\n")
+        writer.write(b"Content-Type: " + CONTENT_TYPE_LATEST.encode() + b"\r\n")
+        writer.write(b"Content-Length: " + str(len(data)).encode() + b"\r\n")
+        writer.write(b"\r\n")
+        writer.write(data)
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    return await asyncio.start_server(handler, host=host, port=port)
 
 
 def create_app(
@@ -53,6 +80,7 @@ def create_app(
 
         tasks: list[asyncio.Task[Any]] = []
         polling = settings.bot_mode != "webhook"
+        metrics_server: Any = None
 
         try:
             setup_logging()
@@ -117,8 +145,16 @@ def create_app(
                 ]
             )
 
+            metrics_server = await _serve_metrics(
+                session_factory,
+                port=settings.metrics_port,
+            )
+
             yield
         finally:
+            if metrics_server is not None:
+                metrics_server.close()
+                await metrics_server.wait_closed()
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -155,6 +191,21 @@ def create_app(
             return response
         finally:
             clear_contextvars()
+
+    @app.middleware("http")
+    async def metrics_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        start = time.monotonic()
+        response = await call_next(request)
+        elapsed = time.monotonic() - start
+        route = request.scope.get("route")
+        route_str = route.path if route else request.url.path
+        http_requests.labels(
+            method=request.method,
+            route=route_str,
+            status=str(response.status_code),
+        ).inc()
+        http_latency.labels(method=request.method, route=route_str).observe(elapsed)
+        return response
 
     @app.get("/health/live")
     async def health_live() -> dict[str, str]:

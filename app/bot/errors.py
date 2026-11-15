@@ -6,6 +6,8 @@ import sentry_sdk
 from structlog.contextvars import get_contextvars
 from telegram.ext import ContextTypes
 
+from app.metrics import errors_total
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,3 +16,4 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Unhandled PTB error", exc_info=context.error)
     tags = {"component": "bot", **get_contextvars()}
     sentry_sdk.capture_exception(context.error, tags=tags)
+    errors_total.labels(component="bot").inc()

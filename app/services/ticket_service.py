@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.enums import Priority, Role, TicketEventType, TicketStatus
 from app.db.models import Ticket, TicketEvent, User
+from app.metrics import status_transitions, ticket_time_to_take, tickets_created
 from app.services.state_machine import (
     TicketAction,
     is_action_allowed,
@@ -195,6 +196,7 @@ async def _apply_transition(
             version=updated.version,
         )
     )
+    status_transitions.labels(old_status.value, updated.status.value).inc()
     return updated
 
 
@@ -224,6 +226,7 @@ async def create_ticket(
     )
     session.add(ticket)
     await session.flush()
+    tickets_created.labels(priority=ticket.priority.value).inc()
     session.add(
         TicketEvent(
             ticket_id=ticket.id,
@@ -251,7 +254,7 @@ async def take(
     # concurrent role downgrade (FOR UPDATE) cannot commit until this ticket's
     # conditional UPDATE is done.
     await _lock_user_for_share(session, actor.id)
-    return await _apply_transition(
+    ticket = await _apply_transition(
         session,
         ticket_id=ticket_id,
         actor=actor,
@@ -260,6 +263,26 @@ async def take(
         event_type=TicketEventType.taken,
         extra_values={"assignee_id": actor.id, "taken_at": _now(), "next_reminder_at": None},
     )
+
+    # Measure time-to-take: find the most recent journal entry that placed the
+    # ticket into ``new`` and compute the elapsed wall-clock time.
+    last_new_event = await session.scalar(
+        select(TicketEvent)
+        .where(
+            TicketEvent.ticket_id == ticket_id,
+            TicketEvent.event_type.in_(
+                [TicketEventType.created, TicketEventType.abandoned, TicketEventType.reopened],
+            ),
+            TicketEvent.new_status == TicketStatus.new.value,
+        )
+        .order_by(TicketEvent.created_at.desc())
+        .limit(1),
+    )
+    if last_new_event is not None:
+        delta = (_now() - last_new_event.created_at).total_seconds()
+        ticket_time_to_take.observe(delta)
+
+    return ticket
 
 
 async def set_waiting_info(

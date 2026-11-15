@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.db.models import Ticket
+from app.metrics import reminders_sent
 from app.services.draft_service import cleanup_expired_drafts
 from app.services.post_sync import PostClient, PostRenderer, render_ticket_post, sync_one
 from app.services.reminders import ReminderSender, claim_due_reminders, reminder_text
@@ -92,6 +93,7 @@ async def run_reminder_pass(
             logger.exception("reminder send failed for ticket #%s", ticket_id)
             continue
         sent += 1
+        reminders_sent.inc()
     return sent
 
 

@@ -18,6 +18,7 @@ from telegram.ext import Application
 from app.config import settings
 from app.db.session import async_session_factory
 from app.logging import bind_contextvars, clear_contextvars
+from app.metrics import updates_deduplicated, updates_processed
 from app.services.update_dedup import mark_processed
 
 logger = logging.getLogger(__name__)
@@ -41,8 +42,10 @@ async def _handle_update(
             async with async_session_factory() as session:
                 if not await mark_processed(session, update.update_id):
                     # Already seen: a retry of an update that was processed before.
+                    updates_deduplicated.inc()
                     return
                 await session.commit()
+                updates_processed.inc()
         except Exception:  # noqa: BLE001 — the endpoint must still answer 200.
             # A dedup-write failure (e.g. DB outage) is NOT a "заведомо сбойный апдейт":
             # the update was never recorded, so it will be silently dropped rather than
