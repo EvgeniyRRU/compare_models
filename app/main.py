@@ -4,9 +4,11 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Response, status
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from telegram import Update
@@ -27,6 +29,8 @@ from app.db.session import make_session_factory
 from app.webhook import router as webhook_router
 
 logger = logging.getLogger(__name__)
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 def create_app(
@@ -148,6 +152,9 @@ def create_app(
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "unavailable"}
         return {"status": "ok"}
+
+    # Mounted last so the explicit /api and /health routes match first.
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
     return app
 

@@ -420,3 +420,40 @@ async def test_restore_post_sends_new_message(
     fresh = await fresh_ticket(session, ticket.id)
     assert fresh.message_id == fake.sent_ids[0]
     assert fresh.message_id != 111
+
+
+async def test_list_includes_author_and_assignee_names(
+    session: AsyncSession, client: httpx.AsyncClient
+) -> None:
+    author = User(telegram_id=2001, role=Role.support, full_name="Support Person")
+    dev = User(telegram_id=2002, role=Role.developer, full_name="Dev Person")
+    session.add_all([author, dev])
+    await session.flush()
+    await session.commit()
+    await mk_ticket(session, author, assignee=dev, status=TicketStatus.in_progress)
+    await session.commit()
+
+    response = await client.get("/api/tickets", headers=auth_headers(2001))
+
+    assert response.status_code == 200
+    [item] = response.json()["items"]
+    assert item["author_name"] == "Support Person"
+    assert item["assignee_name"] == "Dev Person"
+
+
+async def test_detail_includes_names_and_none_assignee(
+    session: AsyncSession, client: httpx.AsyncClient
+) -> None:
+    author = User(telegram_id=2001, role=Role.support, full_name="Support Person")
+    session.add(author)
+    await session.flush()
+    await session.commit()
+    ticket = await mk_ticket(session, author)
+    await session.commit()
+
+    response = await client.get(f"/api/tickets/{ticket.id}", headers=auth_headers(2001))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["author_name"] == "Support Person"
+    assert body["assignee_name"] is None

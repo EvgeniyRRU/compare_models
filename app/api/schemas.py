@@ -13,6 +13,10 @@ class TicketOut(BaseModel):
     id: int
     author_id: int
     assignee_id: int | None
+    # Populated by the ticket routes (not ORM attributes): ``User`` rows are
+    # batch-fetched and rendered via ``user_display_name``.
+    author_name: str = ""
+    assignee_name: str | None = None
     description: str
     priority: Priority
     request_id: str
