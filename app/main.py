@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from telegram import Update
 from telegram.ext import Application
 
+from app.api.routes import api_router
 from app.background import (
     run_draft_cleanup_loop,
     run_post_sync_loop,
@@ -67,6 +68,7 @@ def create_app(
                 )
 
             client = BotPostClient(application.bot, settings.dev_chat_id)
+            app.state.post_client = client
 
             async def send_reminder(text: str, reply_to_message_id: int | None) -> None:
                 await application.bot.send_message(
@@ -131,6 +133,7 @@ def create_app(
     app.state.application = application
 
     app.include_router(webhook_router)
+    app.include_router(api_router)
 
     @app.get("/health/live")
     async def health_live() -> dict[str, str]:

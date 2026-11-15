@@ -70,6 +70,30 @@ async def sync_ticket(
     )
 
 
+async def restore_post(
+    *,
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    ticket_id: int,
+    client: PostClient,
+) -> None:
+    """Admin «Восстановить пост»: force a fresh post, replacing message_id.
+
+    Clears message_id (so the existing post is abandoned) then syncs, which
+    publishes a new post and persists the new message_id.
+    """
+    async with session_factory() as session:
+        await session.execute(
+            update(Ticket)
+            .where(Ticket.id == ticket_id)
+            .values(message_id=None, updated_at=func.now())
+        )
+        await session.commit()
+    await sync_ticket(
+        engine=engine, session_factory=session_factory, ticket_id=ticket_id, client=client
+    )
+
+
 async def sync_one(
     *,
     engine: AsyncEngine,
