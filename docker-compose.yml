@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rent
+      POSTGRES_PASSWORD: rent
+      POSTGRES_DB: rent_bot
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rent -d rent_bot"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  app:
+    build:
+      context: .
+      target: dev
+    profiles: ["dev"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rent:rent@postgres:5432/rent_bot
+      BOT_MODE: polling
+      LOG_FORMAT: console
+      LOG_LEVEL: INFO
+    volumes:
+      - ./app:/app/app
+      - ./alembic.ini:/app/alembic.ini
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  test:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL: postgresql+asyncpg://rent:rent@postgres:5432/rent_bot_test
+      BOT_TOKEN: "123456:TEST-TOKEN"
+      DEV_CHAT_ID: "-1001234567890"
+      BOOTSTRAP_ADMIN_IDS: "1"
+      LOG_FORMAT: console
+      LOG_LEVEL: WARNING
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./alembic.ini:/app/alembic.ini
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
