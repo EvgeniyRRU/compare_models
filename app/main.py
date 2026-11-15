@@ -48,8 +48,12 @@ async def _serve_metrics(
     from app.metrics import refresh_open_tickets_gauge
 
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        async with session_factory() as session:
-            await refresh_open_tickets_gauge(session)
+        try:
+            async with session_factory() as session:
+                await refresh_open_tickets_gauge(session)
+        except Exception:
+            logger = logging.getLogger("app.metrics")
+            logger.exception("Failed to refresh open-tickets gauge; serving cached metrics")
         data = generate_latest(REGISTRY)
         writer.write(b"HTTP/1.1 200 OK\r\n")
         writer.write(b"Content-Type: " + CONTENT_TYPE_LATEST.encode() + b"\r\n")
