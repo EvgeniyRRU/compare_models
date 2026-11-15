@@ -1,7 +1,22 @@
 import logging
 import sys
+from typing import TextIO, cast
 
 import structlog
+
+
+class _LiveStdout:
+    """Writes through to whatever sys.stdout currently is.
+
+    pytest swaps and closes capture streams mid-session; binding the stream
+    once at configure time would make every later log line die on a closed file.
+    """
+
+    def write(self, s: str) -> int:
+        return sys.stdout.write(s)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
 
 
 def configure_logging(level: str, log_format: str) -> None:
@@ -35,11 +50,11 @@ def configure_logging(level: str, log_format: str) -> None:
     structlog.configure(
         processors=[*structlog_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, level.upper())),
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
+        logger_factory=structlog.PrintLoggerFactory(file=cast("TextIO", _LiveStdout())),
         cache_logger_on_first_use=True,
     )
 
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(_LiveStdout())
     handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
             processors=[

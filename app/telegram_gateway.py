@@ -15,9 +15,16 @@ from datetime import timedelta
 from typing import Protocol
 
 from telegram import Bot as PTBBot
-from telegram import InlineKeyboardMarkup
+from telegram import (
+    ForceReply,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+)
 from telegram.error import BadRequest
 from telegram.error import RetryAfter as TelegramRetryAfter
+
+ReplyMarkup = InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply
 
 logger = logging.getLogger(__name__)
 
@@ -73,14 +80,15 @@ async def call_with_backoff(
 
 
 class Gateway(Protocol):
-    """What post-sync needs from a Telegram sender (FakeGateway in tests)."""
+    """What the bot needs from a Telegram sender (FakeGateway in tests)."""
 
     async def send_message(
         self,
         chat_id: int,
         text: str,
         *,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkup | None = None,
+        reply_to_message_id: int | None = None,
     ) -> int: ...
 
     async def edit_message_text(
@@ -93,6 +101,14 @@ class Gateway(Protocol):
     ) -> None: ...
 
     async def delete_message(self, chat_id: int, message_id: int) -> None: ...
+
+    async def answer_callback(
+        self,
+        callback_id: str,
+        text: str | None = None,
+        *,
+        show_alert: bool = False,
+    ) -> None: ...
 
 
 class TelegramGateway:
@@ -112,7 +128,8 @@ class TelegramGateway:
         chat_id: int,
         text: str,
         *,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkup | None = None,
+        reply_to_message_id: int | None = None,
     ) -> int:
         async def _call() -> int:
             try:
@@ -120,6 +137,7 @@ class TelegramGateway:
                     chat_id=chat_id,
                     text=text,
                     reply_markup=reply_markup,
+                    reply_to_message_id=reply_to_message_id,
                     disable_web_page_preview=True,
                 )
             except TelegramRetryAfter as exc:
@@ -166,5 +184,23 @@ class TelegramGateway:
                 await self._bot.delete_message(chat_id=chat_id, message_id=message_id)
             except TelegramRetryAfter as exc:
                 raise RetryAfter(_seconds(exc)) from exc
+
+        await call_with_backoff(_call)
+
+    async def answer_callback(
+        self,
+        callback_id: str,
+        text: str | None = None,
+        *,
+        show_alert: bool = False,
+    ) -> None:
+        async def _call() -> None:
+            try:
+                await self._bot.answer_callback_query(
+                    callback_query_id=callback_id, text=text, show_alert=show_alert
+                )
+            except BadRequest as exc:
+                # Expired/nonsense callbacks are harmless; the user already saw the UI.
+                logger.debug("answer_callback failed: %s", exc)
 
         await call_with_backoff(_call)

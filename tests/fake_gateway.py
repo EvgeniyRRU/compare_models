@@ -13,6 +13,14 @@ class Call:
     message_id: int | None
     text: str
     markup: object | None
+    reply_to: int | None = None
+
+
+@dataclass
+class Alert:
+    callback_id: str
+    text: str | None
+    show_alert: bool
 
 
 class FakeGateway:
@@ -20,6 +28,7 @@ class FakeGateway:
         self.calls: list[Call] = []
         self.texts: dict[int, str] = {}  # message_id -> last text
         self.live: set[int] = set()
+        self.alerts: list[Alert] = []
         self._next_id = 1000
         self.errors: list[Exception] = []
         self.hold: asyncio.Event | None = None  # set to block the next call
@@ -37,14 +46,23 @@ class FakeGateway:
             event, self.hold = self.hold, None
             await event.wait()
 
-    async def send_message(self, chat_id: int, text: str, *, reply_markup: object = None) -> int:
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        reply_markup: object = None,
+        reply_to_message_id: int | None = None,
+    ) -> int:
         await self._maybe_hold()
         self._maybe_fail()
         message_id = self._next_id
         self._next_id += 1
         self.live.add(message_id)
         self.texts[message_id] = text
-        self.calls.append(Call("send", chat_id, message_id, text, reply_markup))
+        self.calls.append(
+            Call("send", chat_id, message_id, text, reply_markup, reply_to_message_id)
+        )
         return message_id
 
     async def edit_message_text(
@@ -67,6 +85,18 @@ class FakeGateway:
         self.live.discard(message_id)
         self.texts.pop(message_id, None)
         self.calls.append(Call("delete", chat_id, message_id, "", None))
+
+    async def answer_callback(
+        self,
+        callback_id: str,
+        text: str | None = None,
+        *,
+        show_alert: bool = False,
+    ) -> None:
+        self.alerts.append(Alert(callback_id, text, show_alert))
+
+    def last_alert_text(self) -> str | None:
+        return self.alerts[-1].text if self.alerts else None
 
     def kinds(self) -> list[str]:
         return [c.kind for c in self.calls]

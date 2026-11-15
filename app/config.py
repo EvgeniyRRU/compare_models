@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Mini App auth
     auth_date_max_age_seconds: int = 3600
+    web_app_url: str = ""
 
     # Timeouts / intervals
     process_update_timeout_seconds: float = 30

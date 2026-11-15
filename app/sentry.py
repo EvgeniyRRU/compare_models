@@ -13,3 +13,8 @@ def init_sentry(settings: Settings) -> None:
         traces_sample_rate=0.0,
         send_default_pii=False,
     )
+
+
+def capture_exception(exc: BaseException | None = None) -> object:
+    """Forward to Sentry; a safe no-op when it was never initialized (no DSN)."""
+    return sentry_sdk.capture_exception(exc)
