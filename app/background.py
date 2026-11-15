@@ -1,10 +1,16 @@
-"""Background loop for synchronizing ticket posts to the dev chat."""
+"""Background loops: post synchronization and reminder dispatch."""
+
+import logging
+from datetime import datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db.models import Ticket
 from app.services.post_sync import PostClient, PostRenderer, render_ticket_post, sync_one
+from app.services.reminders import ReminderSender, claim_due_reminders, reminder_text
+
+logger = logging.getLogger(__name__)
 
 
 async def find_unsynced_ticket_ids(session: AsyncSession, *, limit: int = 100) -> list[int]:
@@ -54,3 +60,30 @@ async def sync_pending(
         if did_sync:
             synced += 1
     return synced
+
+
+async def run_reminder_pass(
+    *,
+    session_factory: async_sessionmaker[AsyncSession],
+    send_reminder: ReminderSender,
+    now: datetime | None = None,
+) -> int:
+    """One reminder pass: claim due reminders (commit), then send each.
+
+    Sends happen AFTER commit. A send error is logged (Sentry in Stage 8) and
+    the reminder is NOT retried (the claim already advanced next_reminder_at).
+    Returns the number of reminders successfully sent.
+    """
+    async with session_factory() as session:
+        due = await claim_due_reminders(session, now=now)
+        await session.commit()
+
+    sent = 0
+    for ticket in due:
+        try:
+            await send_reminder(reminder_text(ticket), ticket.message_id)
+        except Exception:  # noqa: BLE001 — retrying is impossible by design.
+            logger.exception("reminder send failed for ticket #%s", ticket.id)
+            continue
+        sent += 1
+    return sent
