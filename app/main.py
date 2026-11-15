@@ -1,11 +1,16 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Response
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app import logging_setup
+from app.api.errors import register_exception_handlers
+from app.api.tickets import router as tickets_router
+from app.api.users import router as users_router
 from app.api.webhook import router as webhook_router
 from app.bot.application import build_application
 from app.bot.handlers.common import Deps
@@ -129,6 +134,13 @@ def create_app(cfg: Settings | None = None, *, bot_enabled: bool = False) -> Fas
         return {"status": "ok"}
 
     app.include_router(webhook_router)
+    app.include_router(tickets_router)
+    app.include_router(users_router)
+    register_exception_handlers(app)
+
+    mini_app_dir = Path(__file__).parent / "static" / "mini_app"
+    if mini_app_dir.is_dir():
+        app.mount("/miniapp", StaticFiles(directory=mini_app_dir, html=True), name="mini_app")
     return app
 
 

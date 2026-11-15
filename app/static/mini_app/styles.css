@@ -1,0 +1,76 @@
+/* Light/dark via Telegram theme params; JS overrides these vars from
+   Telegram.WebApp.themeParams and data-theme from colorScheme. */
+:root {
+  --bg: #ffffff;
+  --fg: #222222;
+  --muted: #777777;
+  --card: #f4f5f7;
+  --accent: #3390ec;
+  --danger: #d94a3d;
+  --border: #e2e4e8;
+}
+:root[data-theme="dark"] {
+  --bg: #17212b;
+  --fg: #f1f1f1;
+  --muted: #8a97a3;
+  --card: #232e3c;
+  --accent: #55aef5;
+  --danger: #ec6a5e;
+  --border: #2f3b48;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+.topbar { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--border); }
+.tabs { display: flex; gap: 4px; padding: 8px; overflow-x: auto; }
+.tabs button {
+  border: none; background: none; color: var(--muted);
+  padding: 8px 12px; border-radius: 8px; font-size: 15px; cursor: pointer; white-space: nowrap;
+}
+.tabs button.active { color: var(--accent); background: var(--card); }
+
+.filters { display: flex; gap: 8px; padding: 12px 12px 0; }
+.filters select, #roles-search {
+  flex: 1; padding: 8px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--card); color: var(--fg);
+}
+
+.cards { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+}
+button.card { text-align: left; width: 100%; cursor: pointer; }
+.card .head { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.card .meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.card .desc { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); white-space: nowrap; }
+.badge.new { color: var(--accent); }
+.badge.in_progress, .badge.waiting_info { color: #e5a50a; }
+.badge.resolved, .badge.rejected, .badge.duplicate { color: var(--muted); }
+.badge.critical { color: var(--danger); }
+
+.field { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.field .k { color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.btn {
+  border: none; border-radius: 8px; padding: 10px 14px; font-size: 15px;
+  background: var(--accent); color: #fff; cursor: pointer;
+}
+.btn.secondary { background: var(--card); color: var(--accent); border: 1px solid var(--border); }
+.btn.danger { background: var(--danger); }
+.btn:disabled { opacity: 0.5; }
+select.role { padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
+.hidden { display: none !important; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  max-width: 90vw; padding: 10px 16px; border-radius: 10px;
+  background: var(--card); border: 1px solid var(--border); color: var(--fg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+.toast.error { border-color: var(--danger); color: var(--danger); }
