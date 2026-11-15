@@ -20,7 +20,15 @@ from app.bot.handlers.create import (
 )
 from app.db.enums import DraftStep, Priority, Role
 from app.db.models import Ticket, TicketDraft, User
-from app.services.draft_service import create_draft, save_description, set_prompt_message_id
+from app.services.draft_service import (
+    DraftChanged,
+    create_draft,
+    save_description,
+    save_request_id,
+    save_tenant_id,
+    set_priority,
+    set_prompt_message_id,
+)
 
 CHAT_ID = 42
 
@@ -345,6 +353,44 @@ async def test_stale_answer_does_not_land_in_next_field(session: AsyncSession) -
     assert f.tenant_id is None
 
 
+async def test_draft_text_answer_draft_changed_reasks(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = await mk_user(session, 1001, Role.support)
+    bot = FakeBot()
+    replies: list[str] = []
+
+    await new_command(make_command_update(replies), make_context(bot, user))
+    draft = await fresh_active_draft(session, user.id)
+    assert draft is not None
+    sent_before = len(bot.sent_messages)
+
+    async def raise_draft_changed(
+        session: AsyncSession,
+        *,
+        draft_id: uuid.UUID,
+        user_id: int,
+        expected_version: int,
+        description: str,
+    ) -> TicketDraft:
+        raise DraftChanged(draft_id)
+
+    monkeypatch.setattr("app.bot.handlers.create.save_description", raise_draft_changed)
+
+    # A bound answer racing a concurrent change is discarded and re-asked, not raised.
+    await draft_text_answer(
+        make_text_update("desc", draft.prompt_message_id, replies), make_context(bot, user)
+    )
+
+    # No crash: the handler re-read and re-asked the current step.
+    assert len(bot.sent_messages) > sent_before
+    f = await fresh_active_draft(session, user.id)
+    assert f is not None
+    assert f.step is DraftStep.description
+    assert f.version == 1
+    assert f.description is None
+
+
 async def test_stale_form_callback_alerts_changed(session: AsyncSession) -> None:
     user = await mk_user(session, 1001, Role.support)
     bot = FakeBot()
@@ -384,7 +430,7 @@ async def test_form_callback_rejects_foreign_draft_id(session: AsyncSession) -> 
     draft = await create_draft(session, user_id=victim.id)
     await session.commit()
     draft = await save_description(
-        session, draft_id=draft.id, expected_version=1, description="victim desc"
+        session, draft_id=draft.id, user_id=victim.id, expected_version=1, description="victim desc"
     )
     await session.commit()
 
@@ -426,6 +472,17 @@ async def test_cancel_deletes_draft(session: AsyncSession) -> None:
     assert await fresh_active_draft(session, user.id) is None
 
 
+async def test_cancel_no_active_draft(session: AsyncSession) -> None:
+    user = await mk_user(session, 1001, Role.support)
+    bot = FakeBot()
+    replies: list[str] = []
+
+    await cancel_command(make_command_update(replies), make_context(bot, user))
+
+    assert any("Нет активного черновика" in r for r in replies)
+    assert await fresh_active_draft(session, user.id) is None
+
+
 async def test_late_prompt_send_is_noop(
     session: AsyncSession, create_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -433,6 +490,7 @@ async def test_late_prompt_send_is_noop(
     bot = FakeBot()
     replies: list[str] = []
 
+    # Drive to the request_id text step (v3), whose prompt_message_id is set.
     await new_command(make_command_update(replies), make_context(bot, user))
     draft = await fresh_active_draft(session, user.id)
     assert draft is not None
@@ -441,11 +499,20 @@ async def test_late_prompt_send_is_noop(
     )
     draft = await fresh_active_draft(session, user.id)
     assert draft is not None
-    assert draft.version == 2
-    assert draft.step is DraftStep.priority
-    assert draft.prompt_message_id is None
+    await form_callback(
+        make_callback_update(
+            bot, encode_form_callback("priority", draft.id, draft.version, Priority.high)
+        ),
+        make_context(bot, user),
+    )
+    draft = await fresh_active_draft(session, user.id)
+    assert draft is not None
+    assert draft.step is DraftStep.request_id
+    current_prompt = draft.prompt_message_id
+    assert current_prompt is not None
 
-    # A late prompt-send for the PREVIOUS step (description, version 1) is a no-op.
+    # A late prompt-send for the PREVIOUS step (description, version 1) is a no-op:
+    # it must not overwrite the current step's prompt_message_id.
     async with create_session_factory() as fresh:
         ok = await set_prompt_message_id(
             fresh,
@@ -459,4 +526,116 @@ async def test_late_prompt_send_is_noop(
 
     f = await fresh_active_draft(session, user.id)
     assert f is not None
-    assert f.prompt_message_id is None
+    assert f.prompt_message_id == current_prompt
+
+
+async def test_group_chat_callback_is_ignored(session: AsyncSession) -> None:
+    user = await mk_user(session, 1001, Role.support)
+    draft = await create_draft(session, user_id=user.id)
+    await session.commit()
+
+    bot = FakeBot()
+    # A "no" callback from a GROUP chat (never legitimately rendered there).
+    query = make_callback_query(bot, encode_form_callback("no", draft.id, draft.version))
+    update = cast(
+        Update,
+        SimpleNamespace(
+            callback_query=query,
+            effective_chat=SimpleNamespace(type="group", id=CHAT_ID),
+        ),
+    )
+    await form_callback(update, make_context(bot, user))
+
+    # Answered empty (spinner closed), no alert, draft untouched.
+    assert len(bot.answered_queries) == 1
+    assert bot.answered_queries[0]["text"] is None
+    assert bot.answered_queries[0]["show_alert"] is None
+    f = await fresh_draft(session, draft.id)
+    assert f is not None
+    assert f.user_id == user.id
+    assert f.step is DraftStep.description
+
+
+@pytest.mark.parametrize(
+    ("path", "target_step"),
+    [
+        ("skip", DraftStep.tenant_id),
+        ("no", DraftStep.confirm),
+        ("continue", DraftStep.priority),
+        ("restart", DraftStep.priority),
+    ],
+)
+async def test_foreign_draft_id_rejected(
+    path: str, target_step: DraftStep, session: AsyncSession
+) -> None:
+    victim = await mk_user(session, 1001, Role.support)
+    attacker = await mk_user(session, 1002, Role.support)
+
+    draft = await create_draft(session, user_id=victim.id)
+    await session.commit()
+    draft = await save_description(
+        session, draft_id=draft.id, user_id=victim.id, expected_version=1, description="victim desc"
+    )
+    await session.commit()  # priority, v2
+
+    if target_step is DraftStep.tenant_id:
+        draft = await set_priority(
+            session,
+            draft_id=draft.id,
+            user_id=victim.id,
+            expected_version=2,
+            priority=Priority.medium,
+        )
+        draft = await save_request_id(
+            session, draft_id=draft.id, user_id=victim.id, expected_version=3, request_id="REQ-1"
+        )
+        await session.commit()  # tenant_id, v4
+    elif target_step is DraftStep.confirm:
+        draft = await set_priority(
+            session,
+            draft_id=draft.id,
+            user_id=victim.id,
+            expected_version=2,
+            priority=Priority.medium,
+        )
+        draft = await save_request_id(
+            session, draft_id=draft.id, user_id=victim.id, expected_version=3, request_id="REQ-1"
+        )
+        draft = await save_tenant_id(
+            session, draft_id=draft.id, user_id=victim.id, expected_version=4, tenant_id=None
+        )
+        await session.commit()  # confirm, v5
+
+    if path in ("skip", "no"):
+        data = encode_form_callback(path, draft.id, draft.version)  # type: ignore[arg-type]
+        handler = form_callback
+    else:  # continue / restart
+        data = encode_draft_menu_callback(path, draft.id, draft.version)  # type: ignore[arg-type]
+        handler = draft_menu_callback
+
+    victim_id = draft.id
+    victim_version = draft.version
+    victim_step = draft.step
+
+    bot = FakeBot()
+    await handler(make_callback_update(bot, data), make_context(bot, attacker))
+
+    # The victim's draft is never mutated, regardless of path.
+    f = await fresh_draft(session, victim_id)
+    assert f is not None
+    assert f.user_id == victim.id
+    assert f.version == victim_version
+    assert f.step is victim_step
+
+    if path in ("skip", "continue"):
+        # save_tenant_id raises DraftNotFound; "continue" is blocked by the reveal guard.
+        assert bot.answered_queries[-1]["text"] == "Черновик не найден"
+        assert bot.answered_queries[-1]["show_alert"] is True
+    elif path == "no":
+        # delete_draft is scoped to user_id, so a foreign "no" is a silent no-op.
+        assert bot.answered_queries[-1]["text"] == "Создание отменено"
+    else:  # restart: no reveal, no alert — the attacker simply starts fresh.
+        assert bot.answered_queries[-1]["text"] is None
+        attacker_draft = await fresh_active_draft(session, attacker.id)
+        assert attacker_draft is not None
+        assert attacker_draft.user_id == attacker.id

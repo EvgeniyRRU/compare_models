@@ -162,7 +162,8 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    assert draft is not None
+    if draft is None:
+        return
     await _send_step_prompt(context, chat.id, draft)
 
 
@@ -183,7 +184,7 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with async_session_factory() as session:
         draft = await get_active_draft(session, user.id)
         if draft is not None:
-            await delete_draft(session, draft_id=draft.id)
+            await delete_draft(session, draft_id=draft.id, user_id=user.id)
             deleted = True
             await session.commit()
 
@@ -224,26 +225,27 @@ async def draft_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         draft: TicketDraft | None = None
         async with async_session_factory() as session:
-            existing = await get_draft(session, draft_id)
             if action == "restart":
-                if existing is not None and existing.user_id != user.id:
-                    await answer("Черновик не найден", show_alert=True)
-                    return
-                await delete_draft(session, draft_id=draft_id)
+                await delete_draft(session, draft_id=draft_id, user_id=user.id)
                 # Clear any other active draft (stale-menu race) so the fresh
                 # INSERT can't hit the UNIQUE(user_id) constraint, then start over.
                 active = await get_active_draft(session, user.id)
                 if active is not None:
-                    await delete_draft(session, draft_id=active.id)
+                    await delete_draft(session, draft_id=active.id, user_id=user.id)
                 draft = await create_draft(session, user_id=user.id)
                 await session.commit()
             else:  # "continue"
+                # Read-reveal guard: "continue" re-sends the current-step prompt
+                # into the caller's chat, so a foreign id must not leak the step.
+                existing = await get_draft(session, draft_id)
                 if existing is None or existing.user_id != user.id:
                     await answer("Черновик не найден", show_alert=True)
                     return
                 draft = existing
 
-        assert draft is not None
+        if draft is None:
+            await answer("Черновик не найден", show_alert=True)
+            return
         await _send_step_prompt(context, chat.id, draft)
         await answer()
     finally:
@@ -288,13 +290,10 @@ async def form_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     await answer("Неверные данные кнопки", show_alert=True)
                     return
                 async with async_session_factory() as session:
-                    existing = await get_draft(session, decoded.draft_id)
-                    if existing is None or existing.user_id != user.id:
-                        await answer("Черновик не найден", show_alert=True)
-                        return
                     draft = await set_priority(
                         session,
                         draft_id=decoded.draft_id,
+                        user_id=user.id,
                         expected_version=decoded.version,
                         priority=priority,
                     )
@@ -302,13 +301,10 @@ async def form_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 await _send_step_prompt(context, chat.id, draft)
             elif decoded.action == "skip":
                 async with async_session_factory() as session:
-                    existing = await get_draft(session, decoded.draft_id)
-                    if existing is None or existing.user_id != user.id:
-                        await answer("Черновик не найден", show_alert=True)
-                        return
                     draft = await save_tenant_id(
                         session,
                         draft_id=decoded.draft_id,
+                        user_id=user.id,
                         expected_version=decoded.version,
                         tenant_id=None,
                     )
@@ -337,11 +333,7 @@ async def form_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 return
             else:  # "no"
                 async with async_session_factory() as session:
-                    existing = await get_draft(session, decoded.draft_id)
-                    if existing is None or existing.user_id != user.id:
-                        await answer("Черновик не найден", show_alert=True)
-                        return
-                    await delete_draft(session, draft_id=decoded.draft_id)
+                    await delete_draft(session, draft_id=decoded.draft_id, user_id=user.id)
                     await session.commit()
                 await answer("Создание отменено")
                 return
@@ -392,40 +384,43 @@ async def draft_text_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             and reply.message_id == draft.prompt_message_id
         )
 
-        if bound and draft.step is DraftStep.description:
-            try:
+        try:
+            if bound and draft.step is DraftStep.description:
                 draft = await save_description(
                     session,
                     draft_id=draft.id,
+                    user_id=user.id,
                     expected_version=draft.version,
                     description=message.text,
                 )
                 await session.commit()
-            except DraftValidationError as exc:
-                validation_error = str(exc)
-        elif bound and draft.step is DraftStep.request_id:
-            try:
+            elif bound and draft.step is DraftStep.request_id:
                 draft = await save_request_id(
                     session,
                     draft_id=draft.id,
+                    user_id=user.id,
                     expected_version=draft.version,
                     request_id=message.text,
                 )
                 await session.commit()
-            except DraftValidationError as exc:
-                validation_error = str(exc)
-        elif bound and draft.step is DraftStep.tenant_id:
-            try:
+            elif bound and draft.step is DraftStep.tenant_id:
                 draft = await save_tenant_id(
                     session,
                     draft_id=draft.id,
+                    user_id=user.id,
                     expected_version=draft.version,
                     tenant_id=message.text,
                 )
                 await session.commit()
-            except DraftValidationError as exc:
-                validation_error = str(exc)
-        # else: not bound, or a priority/confirm step — re-ask without mutating.
+            # else: not bound, or a priority/confirm step — re-ask without mutating.
+        except DraftValidationError as exc:
+            validation_error = str(exc)
+        except DraftChanged, DraftNotFound:
+            # The bound answer raced a concurrent change/deletion: discard it and
+            # re-read so the tail re-asks the *current* step (or returns if gone).
+            draft = await get_active_draft(session, user.id)
+            if draft is None:
+                return
 
     if validation_error is not None:
         await message.reply_text(validation_error)

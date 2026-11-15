@@ -5,11 +5,13 @@ Pure business logic — no Telegram or HTTP imports. Every operation takes an
 same optimistic-concurrency contract as :mod:`app.services.ticket_service`:
 
 * a step mutation is a single conditional ``UPDATE`` guarded by
-  ``WHERE id = :id AND version = :expected_version AND step = :expected_step``,
-  bumping ``version`` exactly once and clearing ``prompt_message_id``;
+  ``WHERE id = :id AND user_id = :user_id AND version = :expected_version AND
+  step = :expected_step``, bumping ``version`` exactly once and clearing
+  ``prompt_message_id``;
 * if the conditional ``UPDATE`` matched zero rows, nothing changed and the
   operation raises :class:`DraftChanged` (or :class:`DraftNotFound` if the row
-  no longer exists).
+  no longer exists *for that user* — a foreign draft id is indistinguishable
+  from a missing one, so its existence is never leaked).
 
 Helpers never commit: the caller (or a thin wrapper) owns the commit.
 """
@@ -75,10 +77,15 @@ async def create_draft(session: AsyncSession, *, user_id: int) -> TicketDraft:
     return draft
 
 
-async def delete_draft(session: AsyncSession, *, draft_id: uuid.UUID) -> bool:
-    """Delete a draft by id; return whether a row was deleted."""
+async def delete_draft(session: AsyncSession, *, draft_id: uuid.UUID, user_id: int) -> bool:
+    """Delete a draft by id, scoped to ``user_id``; return whether a row was deleted.
+
+    A foreign ``draft_id`` (another user's draft) matches zero rows and is a no-op.
+    """
     deleted_id = await session.scalar(
-        delete(TicketDraft).where(TicketDraft.id == draft_id).returning(TicketDraft.id),
+        delete(TicketDraft)
+        .where(TicketDraft.id == draft_id, TicketDraft.user_id == user_id)
+        .returning(TicketDraft.id),
     )
     return deleted_id is not None
 
@@ -115,6 +122,7 @@ async def _step_update(
     session: AsyncSession,
     *,
     draft_id: uuid.UUID,
+    user_id: int,
     expected_version: int,
     expected_step: DraftStep,
     values: dict[str, Any],
@@ -123,7 +131,9 @@ async def _step_update(
     """Run the guarded step transition ``UPDATE ... RETURNING``.
 
     A stale version or a wrong step (answering the wrong question) matches zero
-    rows and raises :class:`DraftChanged` without changing anything.
+    rows and raises :class:`DraftChanged` without changing anything. A foreign
+    ``user_id`` (or a deleted draft) matches zero rows and raises
+    :class:`DraftNotFound`, so a draft's existence is never leaked.
     """
     # NOTE: ``updated_at`` is intentionally NOT bumped here — this raw Core UPDATE
     # bypasses the ORM ``onupdate``; a cross-cutting pass will add
@@ -132,6 +142,7 @@ async def _step_update(
         update(TicketDraft)
         .where(
             TicketDraft.id == draft_id,
+            TicketDraft.user_id == user_id,
             TicketDraft.version == expected_version,
             TicketDraft.step == expected_step,
         )
@@ -140,7 +151,12 @@ async def _step_update(
     )
     updated = result.scalar_one_or_none()
     if updated is None:
-        exists = await session.scalar(select(TicketDraft.id).where(TicketDraft.id == draft_id))
+        exists = await session.scalar(
+            select(TicketDraft.id).where(
+                TicketDraft.id == draft_id,
+                TicketDraft.user_id == user_id,
+            )
+        )
         if exists is None:
             raise DraftNotFound(draft_id)
         raise DraftChanged(draft_id)
@@ -148,7 +164,12 @@ async def _step_update(
 
 
 async def save_description(
-    session: AsyncSession, *, draft_id: uuid.UUID, expected_version: int, description: str
+    session: AsyncSession,
+    *,
+    draft_id: uuid.UUID,
+    user_id: int,
+    expected_version: int,
+    description: str,
 ) -> TicketDraft:
     """Save the ticket description: ``description -> priority``."""
     stripped = description.strip()
@@ -159,6 +180,7 @@ async def save_description(
     return await _step_update(
         session,
         draft_id=draft_id,
+        user_id=user_id,
         expected_version=expected_version,
         expected_step=DraftStep.description,
         values={"description": stripped},
@@ -167,12 +189,18 @@ async def save_description(
 
 
 async def set_priority(
-    session: AsyncSession, *, draft_id: uuid.UUID, expected_version: int, priority: Priority
+    session: AsyncSession,
+    *,
+    draft_id: uuid.UUID,
+    user_id: int,
+    expected_version: int,
+    priority: Priority,
 ) -> TicketDraft:
     """Save the ticket priority: ``priority -> request_id``."""
     return await _step_update(
         session,
         draft_id=draft_id,
+        user_id=user_id,
         expected_version=expected_version,
         expected_step=DraftStep.priority,
         values={"priority": priority},
@@ -181,7 +209,12 @@ async def set_priority(
 
 
 async def save_request_id(
-    session: AsyncSession, *, draft_id: uuid.UUID, expected_version: int, request_id: str
+    session: AsyncSession,
+    *,
+    draft_id: uuid.UUID,
+    user_id: int,
+    expected_version: int,
+    request_id: str,
 ) -> TicketDraft:
     """Save the request id: ``request_id -> tenant_id``."""
     stripped = request_id.strip()
@@ -192,6 +225,7 @@ async def save_request_id(
     return await _step_update(
         session,
         draft_id=draft_id,
+        user_id=user_id,
         expected_version=expected_version,
         expected_step=DraftStep.request_id,
         values={"request_id": stripped},
@@ -203,6 +237,7 @@ async def save_tenant_id(
     session: AsyncSession,
     *,
     draft_id: uuid.UUID,
+    user_id: int,
     expected_version: int,
     tenant_id: str | None,
 ) -> TicketDraft:
@@ -217,6 +252,7 @@ async def save_tenant_id(
     return await _step_update(
         session,
         draft_id=draft_id,
+        user_id=user_id,
         expected_version=expected_version,
         expected_step=DraftStep.tenant_id,
         values={"tenant_id": stripped},

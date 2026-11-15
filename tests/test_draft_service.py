@@ -63,13 +63,25 @@ async def advance_to_tenant_id(
 ) -> TicketDraft:
     """Advance a fresh draft through description/priority/request_id (version 4)."""
     draft = await save_description(
-        session, draft_id=draft.id, expected_version=draft.version, description=description
+        session,
+        draft_id=draft.id,
+        user_id=draft.user_id,
+        expected_version=draft.version,
+        description=description,
     )
     draft = await set_priority(
-        session, draft_id=draft.id, expected_version=draft.version, priority=priority
+        session,
+        draft_id=draft.id,
+        user_id=draft.user_id,
+        expected_version=draft.version,
+        priority=priority,
     )
     draft = await save_request_id(
-        session, draft_id=draft.id, expected_version=draft.version, request_id=request_id
+        session,
+        draft_id=draft.id,
+        user_id=draft.user_id,
+        expected_version=draft.version,
+        request_id=request_id,
     )
     return draft
 
@@ -92,7 +104,11 @@ async def fill_draft(
         request_id=request_id,
     )
     return await save_tenant_id(
-        session, draft_id=draft.id, expected_version=draft.version, tenant_id=tenant_id
+        session,
+        draft_id=draft.id,
+        user_id=draft.user_id,
+        expected_version=draft.version,
+        tenant_id=tenant_id,
     )
 
 
@@ -157,7 +173,7 @@ async def test_happy_path_full_flow(session: AsyncSession) -> None:
     )
 
     draft = await save_description(
-        session, draft_id=draft.id, expected_version=1, description="  hello  "
+        session, draft_id=draft.id, user_id=user.id, expected_version=1, description="  hello  "
     )
     await session.commit()
     assert draft.version == 2
@@ -166,7 +182,7 @@ async def test_happy_path_full_flow(session: AsyncSession) -> None:
     assert draft.prompt_message_id is None
 
     draft = await set_priority(
-        session, draft_id=draft.id, expected_version=2, priority=Priority.high
+        session, draft_id=draft.id, user_id=user.id, expected_version=2, priority=Priority.high
     )
     await session.commit()
     assert draft.version == 3
@@ -174,7 +190,7 @@ async def test_happy_path_full_flow(session: AsyncSession) -> None:
     assert draft.priority is Priority.high
 
     draft = await save_request_id(
-        session, draft_id=draft.id, expected_version=3, request_id="REQ-1"
+        session, draft_id=draft.id, user_id=user.id, expected_version=3, request_id="REQ-1"
     )
     await session.commit()
     assert draft.version == 4
@@ -182,7 +198,7 @@ async def test_happy_path_full_flow(session: AsyncSession) -> None:
     assert draft.request_id == "REQ-1"
 
     draft = await save_tenant_id(
-        session, draft_id=draft.id, expected_version=4, tenant_id="tenant-1"
+        session, draft_id=draft.id, user_id=user.id, expected_version=4, tenant_id="tenant-1"
     )
     await session.commit()
     assert draft.version == 5
@@ -212,7 +228,9 @@ async def test_save_tenant_id_skip_none_and_empty(session: AsyncSession) -> None
     draft = await new_draft(session, user)
     draft = await advance_to_tenant_id(session, draft)
 
-    draft = await save_tenant_id(session, draft_id=draft.id, expected_version=4, tenant_id=None)
+    draft = await save_tenant_id(
+        session, draft_id=draft.id, user_id=user.id, expected_version=4, tenant_id=None
+    )
     await session.commit()
     assert draft.step is DraftStep.confirm
     assert draft.tenant_id is None
@@ -224,7 +242,9 @@ async def test_save_tenant_id_skip_none_and_empty(session: AsyncSession) -> None
     # Empty/whitespace is also a skip.
     draft2 = await new_draft(session, user)
     draft2 = await advance_to_tenant_id(session, draft2)
-    draft2 = await save_tenant_id(session, draft_id=draft2.id, expected_version=4, tenant_id="   ")
+    draft2 = await save_tenant_id(
+        session, draft_id=draft2.id, user_id=user.id, expected_version=4, tenant_id="   "
+    )
     await session.commit()
     assert draft2.tenant_id is None
     assert draft2.step is DraftStep.confirm
@@ -236,10 +256,12 @@ async def test_validation_errors_leave_draft_unchanged(session: AsyncSession) ->
     draft = await new_draft(session, user)
 
     with pytest.raises(DraftValidationError):
-        await save_description(session, draft_id=draft.id, expected_version=1, description="   ")
+        await save_description(
+            session, draft_id=draft.id, user_id=user.id, expected_version=1, description="   "
+        )
     with pytest.raises(DraftValidationError):
         await save_description(
-            session, draft_id=draft.id, expected_version=1, description="x" * 3001
+            session, draft_id=draft.id, user_id=user.id, expected_version=1, description="x" * 3001
         )
 
     f = await fresh_draft(session, draft.id)
@@ -248,14 +270,18 @@ async def test_validation_errors_leave_draft_unchanged(session: AsyncSession) ->
     assert f.description is None
 
     draft = await save_description(
-        session, draft_id=draft.id, expected_version=1, description="desc"
+        session, draft_id=draft.id, user_id=user.id, expected_version=1, description="desc"
     )
     await session.commit()
 
     with pytest.raises(DraftValidationError):
-        await save_request_id(session, draft_id=draft.id, expected_version=2, request_id="  ")
+        await save_request_id(
+            session, draft_id=draft.id, user_id=user.id, expected_version=2, request_id="  "
+        )
     with pytest.raises(DraftValidationError):
-        await save_request_id(session, draft_id=draft.id, expected_version=2, request_id="r" * 65)
+        await save_request_id(
+            session, draft_id=draft.id, user_id=user.id, expected_version=2, request_id="r" * 65
+        )
 
     f = await fresh_draft(session, draft.id)
     assert f.version == 2
@@ -263,15 +289,17 @@ async def test_validation_errors_leave_draft_unchanged(session: AsyncSession) ->
     assert f.request_id is None
 
     draft = await set_priority(
-        session, draft_id=draft.id, expected_version=2, priority=Priority.low
+        session, draft_id=draft.id, user_id=user.id, expected_version=2, priority=Priority.low
     )
     draft = await save_request_id(
-        session, draft_id=draft.id, expected_version=3, request_id="REQ-1"
+        session, draft_id=draft.id, user_id=user.id, expected_version=3, request_id="REQ-1"
     )
     await session.commit()
 
     with pytest.raises(DraftValidationError):
-        await save_tenant_id(session, draft_id=draft.id, expected_version=4, tenant_id="t" * 65)
+        await save_tenant_id(
+            session, draft_id=draft.id, user_id=user.id, expected_version=4, tenant_id="t" * 65
+        )
 
     f = await fresh_draft(session, draft.id)
     assert f.version == 4
@@ -287,7 +315,9 @@ async def test_stale_version_raises_draft_changed(session: AsyncSession) -> None
     await session.commit()
 
     with pytest.raises(DraftChanged):
-        await save_request_id(session, draft_id=draft.id, expected_version=3, request_id="REQ-2")
+        await save_request_id(
+            session, draft_id=draft.id, user_id=user.id, expected_version=3, request_id="REQ-2"
+        )
 
     f = await fresh_draft(session, draft.id)
     assert f.version == 4
@@ -301,7 +331,9 @@ async def test_wrong_step_raises_draft_changed(session: AsyncSession) -> None:
     draft = await new_draft(session, user)  # version 1, step description
 
     with pytest.raises(DraftChanged):
-        await set_priority(session, draft_id=draft.id, expected_version=1, priority=Priority.high)
+        await set_priority(
+            session, draft_id=draft.id, user_id=user.id, expected_version=1, priority=Priority.high
+        )
 
     f = await fresh_draft(session, draft.id)
     assert f.version == 1
@@ -314,12 +346,42 @@ async def test_deleted_draft_raises_draft_not_found(session: AsyncSession) -> No
     await session.commit()
     draft = await new_draft(session, user)
 
-    assert await delete_draft(session, draft_id=draft.id) is True
+    assert await delete_draft(session, draft_id=draft.id, user_id=user.id) is True
     await session.commit()
     assert await get_draft(session, draft.id) is None
 
     with pytest.raises(DraftNotFound):
-        await save_description(session, draft_id=draft.id, expected_version=1, description="desc")
+        await save_description(
+            session, draft_id=draft.id, user_id=user.id, expected_version=1, description="desc"
+        )
+
+
+async def test_foreign_draft_id_raises_draft_not_found(session: AsyncSession) -> None:
+    owner = await mk_user(session, 1001, Role.support)
+    other = await mk_user(session, 1002, Role.support)
+    await session.commit()
+    draft = await new_draft(session, owner)
+    draft = await save_description(
+        session, draft_id=draft.id, user_id=owner.id, expected_version=1, description="desc"
+    )
+    await session.commit()  # version 2, step priority
+
+    # Another user mutates the draft with the *correct* version: the foreign id is
+    # indistinguishable from a missing draft, so it raises DraftNotFound (no leak).
+    with pytest.raises(DraftNotFound):
+        await set_priority(
+            session,
+            draft_id=draft.id,
+            user_id=other.id,
+            expected_version=2,
+            priority=Priority.high,
+        )
+
+    f = await fresh_draft(session, draft.id)
+    assert f.user_id == owner.id
+    assert f.version == 2
+    assert f.step is DraftStep.priority
+    assert f.priority is None
 
 
 async def test_set_prompt_message_id_no_version_bump_and_stale_step(session: AsyncSession) -> None:
@@ -345,7 +407,7 @@ async def test_set_prompt_message_id_no_version_bump_and_stale_step(session: Asy
 
     # Advancing clears the prompt and bumps the version.
     draft = await save_description(
-        session, draft_id=draft.id, expected_version=1, description="desc"
+        session, draft_id=draft.id, user_id=user.id, expected_version=1, description="desc"
     )
     await session.commit()
     assert draft.prompt_message_id is None
@@ -377,7 +439,9 @@ async def test_concurrent_save_description_exactly_one_succeeds(
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async def do_save(s: AsyncSession) -> TicketDraft:
-        result = await save_description(s, draft_id=draft_id, expected_version=1, description="one")
+        result = await save_description(
+            s, draft_id=draft_id, user_id=user.id, expected_version=1, description="one"
+        )
         await s.commit()
         return result
 
