@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import uvicorn
 from fastapi import FastAPI, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -17,6 +18,7 @@ from app.bot.handlers.common import Deps
 from app.config import Settings, settings
 from app.db import session as db_session
 from app.logging_setup import get_logger
+from app.metrics import MetricsMiddleware, create_metrics_app
 from app.polling import PtbPollingSource, run_polling
 from app.sentry import init_sentry
 from app.telegram_gateway import TelegramGateway
@@ -33,6 +35,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tasks: list[asyncio.Task[None]] = []
     stop = asyncio.Event()
     app.state.stop_event = stop
+
+    # /metrics lives on its own port so business metrics never cross the public ingress.
+    metrics_server = uvicorn.Server(
+        uvicorn.Config(
+            create_metrics_app(db_session.Session),
+            host="0.0.0.0",
+            port=cfg.metrics_port,
+            log_level="warning",
+        )
+    )
+    metrics_task = asyncio.create_task(metrics_server.serve(), name="metrics-server")
 
     gateway: TelegramGateway | None = None
     application = None
@@ -94,9 +107,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         stop.set()
+        metrics_server.should_exit = True
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await metrics_task
         if application is not None:
             await application.shutdown()
         if gateway is not None:
@@ -117,6 +132,7 @@ def create_app(cfg: Settings | None = None, *, bot_enabled: bool = False) -> Fas
     app.state.gateway = None
     app.state.update_processor = None
     app.state.bot_enabled = bot_enabled
+    app.add_middleware(MetricsMiddleware)
 
     @app.get("/health/live")
     async def health_live() -> dict[str, str]:
