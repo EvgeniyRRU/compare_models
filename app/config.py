@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     advisory_lock_timeout: int = 10
     app_port: int = 8000
     metrics_port: int = 9090
-    log_level: str = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "dev"] = "json"
     sentry_dsn: str | None = None
     sentry_environment: str = "development"

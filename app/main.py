@@ -6,8 +6,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -26,6 +27,8 @@ from app.bot.post_client import BotPostClient
 from app.config import settings
 from app.db.session import engine as default_engine
 from app.db.session import make_session_factory
+from app.logging import bind_contextvars, clear_contextvars, setup_logging
+from app.monitoring import init_sentry
 from app.webhook import router as webhook_router
 
 logger = logging.getLogger(__name__)
@@ -52,6 +55,9 @@ def create_app(
         polling = settings.bot_mode != "webhook"
 
         try:
+            setup_logging()
+            init_sentry()
+
             if polling:
                 # ``run_polling``/``run_webhook`` drive the event loop themselves and
                 # therefore cannot be awaited inside FastAPI's async lifespan, so run the
@@ -138,6 +144,17 @@ def create_app(
 
     app.include_router(webhook_router)
     app.include_router(api_router)
+
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request_id = request.headers.get("X-Request-ID") or str(uuid4())
+        bind_contextvars(request_id=request_id, component="http")
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            clear_contextvars()
 
     @app.get("/health/live")
     async def health_live() -> dict[str, str]:

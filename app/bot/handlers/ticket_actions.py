@@ -12,6 +12,7 @@ from app.bot.post_client import BotPostClient
 from app.config import settings
 from app.db.models import Ticket
 from app.db.session import async_session_factory, engine
+from app.logging import bind_contextvars
 from app.services.post_sync import sync_ticket
 from app.services.state_machine import TicketAction
 from app.services.ticket_service import (
@@ -75,6 +76,8 @@ async def ticket_action_callback(update: Update, context: ContextTypes.DEFAULT_T
         if decoded is None:
             await answer("Неверные данные кнопки", show_alert=True)
             return
+
+        bind_contextvars(ticket_id=decoded.ticket_id)
 
         actor = cast(dict[str, Any], context.user_data).get("user")
         if actor is None:

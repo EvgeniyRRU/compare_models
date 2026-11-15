@@ -13,6 +13,7 @@ from app.api.schemas import ReassignIn, ReopenIn, RestorePostOut, TicketListOut,
 from app.db.enums import Priority, Role, TicketStatus
 from app.db.models import Ticket, User
 from app.db.session import async_session_factory, engine, get_session
+from app.logging import bound_contextvars
 from app.services.post_sync import restore_post, sync_ticket
 from app.services.render import user_display_name
 from app.services.ticket_service import (
@@ -119,17 +120,18 @@ async def get_ticket(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TicketOut:
-    ticket = await session.get(Ticket, ticket_id)
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Обращение не найдено")
-    if (
-        user.role is not Role.admin
-        and ticket.author_id != user.id
-        and ticket.assignee_id != user.id
-    ):
-        # 404 (not 403) to avoid leaking the ticket's existence to an outsider.
-        raise HTTPException(status_code=404, detail="Обращение не найдено")
-    return await _ticket_out(session, ticket)
+    with bound_contextvars(ticket_id=ticket_id, component="api"):
+        ticket = await session.get(Ticket, ticket_id)
+        if ticket is None:
+            raise HTTPException(status_code=404, detail="Обращение не найдено")
+        if (
+            user.role is not Role.admin
+            and ticket.author_id != user.id
+            and ticket.assignee_id != user.id
+        ):
+            # 404 (not 403) to avoid leaking the ticket's existence to an outsider.
+            raise HTTPException(status_code=404, detail="Обращение не найдено")
+        return await _ticket_out(session, ticket)
 
 
 @router.post("/{ticket_id}/reopen", response_model=TicketOut)
@@ -140,15 +142,16 @@ async def reopen_ticket(
     user: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TicketOut:
-    try:
-        ticket = await reopen(
-            session, actor=user, ticket_id=ticket_id, expected_version=body.version
-        )
-    except (PermissionDenied, TicketChanged, TicketAlreadyTaken) as exc:
-        raise_http_for_service_error(exc)
-    await session.commit()
-    await _resync(request, ticket_id)
-    return await _ticket_out(session, ticket)
+    with bound_contextvars(ticket_id=ticket_id, component="api"):
+        try:
+            ticket = await reopen(
+                session, actor=user, ticket_id=ticket_id, expected_version=body.version
+            )
+        except (PermissionDenied, TicketChanged, TicketAlreadyTaken) as exc:
+            raise_http_for_service_error(exc)
+        await session.commit()
+        await _resync(request, ticket_id)
+        return await _ticket_out(session, ticket)
 
 
 @router.post("/{ticket_id}/reassign", response_model=TicketOut)
@@ -159,22 +162,23 @@ async def reassign_ticket(
     user: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TicketOut:
-    new_assignee = await session.get(User, body.assignee_id)
-    if new_assignee is None:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    try:
-        ticket = await reassign(
-            session,
-            actor=user,
-            ticket_id=ticket_id,
-            new_assignee=new_assignee,
-            expected_version=body.version,
-        )
-    except (PermissionDenied, TicketChanged, TicketAlreadyTaken) as exc:
-        raise_http_for_service_error(exc)
-    await session.commit()
-    await _resync(request, ticket_id)
-    return await _ticket_out(session, ticket)
+    with bound_contextvars(ticket_id=ticket_id, component="api"):
+        new_assignee = await session.get(User, body.assignee_id)
+        if new_assignee is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        try:
+            ticket = await reassign(
+                session,
+                actor=user,
+                ticket_id=ticket_id,
+                new_assignee=new_assignee,
+                expected_version=body.version,
+            )
+        except (PermissionDenied, TicketChanged, TicketAlreadyTaken) as exc:
+            raise_http_for_service_error(exc)
+        await session.commit()
+        await _resync(request, ticket_id)
+        return await _ticket_out(session, ticket)
 
 
 @router.post("/{ticket_id}/restore-post", response_model=RestorePostOut)
@@ -184,16 +188,17 @@ async def restore_ticket_post(
     user: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> RestorePostOut:
-    ticket = await session.get(Ticket, ticket_id)
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Обращение не найдено")
+    with bound_contextvars(ticket_id=ticket_id, component="api"):
+        ticket = await session.get(Ticket, ticket_id)
+        if ticket is None:
+            raise HTTPException(status_code=404, detail="Обращение не найдено")
 
-    client = getattr(request.app.state, "post_client", None)
-    if client is not None:
-        await restore_post(
-            engine=engine,
-            session_factory=async_session_factory,
-            ticket_id=ticket_id,
-            client=client,
-        )
-    return RestorePostOut(ok=True)
+        client = getattr(request.app.state, "post_client", None)
+        if client is not None:
+            await restore_post(
+                engine=engine,
+                session_factory=async_session_factory,
+                ticket_id=ticket_id,
+                client=client,
+            )
+        return RestorePostOut(ok=True)
