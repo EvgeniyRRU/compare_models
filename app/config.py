@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     reminder_low_seconds: int = 28800
     reminder_poll_interval: int = 30
     post_sync_poll_interval: int = 10
+    cleanup_poll_interval: int = 3600
     advisory_lock_timeout: int = 10
     app_port: int = 8000
     metrics_port: int = 9090

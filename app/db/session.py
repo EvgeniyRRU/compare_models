@@ -15,13 +15,15 @@ from sqlalchemy.ext.asyncio import (
 
 from app.config import settings
 
+
+def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """Build the single shared session-maker configuration for an engine."""
+    return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
 engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 
-async_session_factory = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+async_session_factory = make_session_factory(engine)
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

@@ -14,9 +14,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import ProcessedUpdate
-
-UPDATE_RETENTION: timedelta = timedelta(hours=48)
 
 
 async def mark_processed(session: AsyncSession, update_id: int) -> bool:
@@ -37,10 +36,10 @@ async def mark_processed(session: AsyncSession, update_id: int) -> bool:
 
 
 async def cleanup_old_updates(session: AsyncSession, *, now: datetime | None = None) -> int:
-    """Delete ledger rows older than :data:`UPDATE_RETENTION`; return the count."""
+    """Delete ledger rows older than ``settings.processed_updates_retention``; return the count."""
     if now is None:
         now = datetime.now(UTC)
-    cutoff = now - UPDATE_RETENTION
+    cutoff = now - timedelta(seconds=settings.processed_updates_retention)
     result = cast(
         CursorResult[Any],
         await session.execute(delete(ProcessedUpdate).where(ProcessedUpdate.created_at < cutoff)),

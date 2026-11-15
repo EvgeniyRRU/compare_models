@@ -70,6 +70,7 @@ def test_default_values(env: pytest.MonkeyPatch) -> None:
     assert settings.reminder_low_seconds == 28800
     assert settings.reminder_poll_interval == 30
     assert settings.post_sync_poll_interval == 10
+    assert settings.cleanup_poll_interval == 3600
     assert settings.advisory_lock_timeout == 10
     assert settings.app_port == 8000
     assert settings.metrics_port == 9090
