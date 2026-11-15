@@ -53,7 +53,7 @@ class TicketView:
     assignee: User | None
 
 
-def _interval_expr(priority: str, settings: Settings) -> object:
+def interval_expr(priority: str, settings: Settings) -> object:
     minutes = settings.reminder_interval_minutes(priority)
     # Named PG argument syntax: positional make_interval() args are order-sensitive and error-prone.
     return text("now() + make_interval(mins => :reminder_minutes)").bindparams(
@@ -114,7 +114,7 @@ async def create(
     await session.execute(
         update(Ticket)
         .where(Ticket.id == ticket.id)
-        .values(next_reminder_at=_interval_expr(str(prio), settings))
+        .values(next_reminder_at=interval_expr(str(prio), settings))
     )
     session.add(
         TicketEvent(
@@ -233,7 +233,7 @@ async def _apply(
         values.update(
             assignee_id=None,
             taken_at=None,
-            next_reminder_at=_interval_expr(str(ticket.priority), settings),
+            next_reminder_at=interval_expr(str(ticket.priority), settings),
         )
         new_assignee = None
     elif action is Action.reopen:
@@ -241,7 +241,7 @@ async def _apply(
             assignee_id=None,
             taken_at=None,
             closed_at=None,
-            next_reminder_at=_interval_expr(str(ticket.priority), settings),
+            next_reminder_at=interval_expr(str(ticket.priority), settings),
         )
         new_assignee = None
 

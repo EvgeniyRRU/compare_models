@@ -17,6 +17,7 @@ from app.sentry import init_sentry
 from app.telegram_gateway import TelegramGateway
 from app.workers.cleanup_worker import run_cleanup_worker
 from app.workers.post_sync_worker import run_post_sync_worker
+from app.workers.reminder_worker import run_reminder_worker
 
 log = get_logger("app.main")
 
@@ -66,6 +67,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     interval_seconds=cfg.post_sync_interval_seconds,
                 ),
                 name="worker-post-sync",
+            )
+        )
+        tasks.append(
+            asyncio.create_task(
+                run_reminder_worker(
+                    gateway,
+                    db_session.Session,
+                    cfg,
+                    stop,
+                    interval_seconds=cfg.reminder_poll_interval_seconds,
+                ),
+                name="worker-reminders",
             )
         )
     else:
