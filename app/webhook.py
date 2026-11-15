@@ -34,11 +34,19 @@ async def _handle_update(
     error (logged + swallowed below) cannot roll it back. A duplicate update is a
     no-op: its id is already in ``processed_updates``.
     """
-    async with async_session_factory() as session:
-        if not await mark_processed(session, update.update_id):
-            # Already seen: a retry of an update that was processed before.
-            return
-        await session.commit()
+    try:
+        async with async_session_factory() as session:
+            if not await mark_processed(session, update.update_id):
+                # Already seen: a retry of an update that was processed before.
+                return
+            await session.commit()
+    except Exception:  # noqa: BLE001 — the endpoint must still answer 200.
+        # A dedup-write failure (e.g. DB outage) is NOT a "заведомо сбойный апдейт":
+        # the update was never recorded, so it will be silently dropped rather than
+        # redelivered. We still return 200 (the codebase's "never 5xx" stance); the
+        # user's retry + background post-sync are the recovery path.
+        logger.exception("webhook dedup write failed (update_id=%s)", update.update_id)
+        return
 
     try:
         await asyncio.wait_for(
@@ -61,6 +69,10 @@ async def telegram_webhook(
         return Response(status_code=401)
 
     application = request.app.state.application
+    if application is None:
+        logger.error("telegram application not wired into app.state")
+        return Response(status_code=503)
+
     try:
         payload: dict[str, Any] = await request.json()
         update = Update.de_json(payload, application.bot)

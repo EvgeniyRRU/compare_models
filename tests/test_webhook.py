@@ -1,5 +1,6 @@
 """Tests for the Telegram webhook endpoint (real PostgreSQL for dedup)."""
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -27,8 +28,11 @@ class FakeApplication:
         self.bot = Bot(token="123456:TEST")
         self.processed: list[int] = []
         self.raise_on_process: Exception | None = None
+        self.sleep_duration: float = 0.0
 
     async def process_update(self, update: Update) -> None:
+        if self.sleep_duration:
+            await asyncio.sleep(self.sleep_duration)
         if self.raise_on_process is not None:
             raise self.raise_on_process
         self.processed.append(update.update_id)
@@ -72,15 +76,19 @@ def text_message_payload(update_id: int) -> dict[str, Any]:
     }
 
 
-async def dedup_ids(engine: AsyncEngine) -> list[int]:
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async def dedup_ids(
+    factory: async_sessionmaker[AsyncSession],
+) -> list[int]:
     async with factory() as session:
         result = await session.execute(select(ProcessedUpdate.update_id))
         return list(result.scalars())
 
 
 async def test_missing_secret_returns_401(
-    engine: AsyncEngine, secret: str, session: AsyncSession
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
 ) -> None:
     fake = FakeApplication()
     client = make_client(fake, engine)
@@ -89,11 +97,14 @@ async def test_missing_secret_returns_401(
 
     assert response.status_code == 401
     assert fake.processed == []
-    assert await dedup_ids(engine) == []
+    assert await dedup_ids(webhook_session_factory) == []
 
 
 async def test_wrong_secret_returns_401(
-    engine: AsyncEngine, secret: str, session: AsyncSession
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
 ) -> None:
     fake = FakeApplication()
     client = make_client(fake, engine)
@@ -106,11 +117,14 @@ async def test_wrong_secret_returns_401(
 
     assert response.status_code == 401
     assert fake.processed == []
-    assert await dedup_ids(engine) == []
+    assert await dedup_ids(webhook_session_factory) == []
 
 
 async def test_correct_secret_processes_once_and_records_dedup(
-    engine: AsyncEngine, secret: str, session: AsyncSession
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
 ) -> None:
     fake = FakeApplication()
     client = make_client(fake, engine)
@@ -123,11 +137,14 @@ async def test_correct_secret_processes_once_and_records_dedup(
 
     assert response.status_code == 200
     assert fake.processed == [42]
-    assert await dedup_ids(engine) == [42]
+    assert await dedup_ids(webhook_session_factory) == [42]
 
 
 async def test_duplicate_update_id_is_noop(
-    engine: AsyncEngine, secret: str, session: AsyncSession
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
 ) -> None:
     fake = FakeApplication()
     client = make_client(fake, engine)
@@ -140,11 +157,14 @@ async def test_duplicate_update_id_is_noop(
     assert first.status_code == 200
     assert second.status_code == 200
     assert fake.processed == [7]  # processed once, not again on the retry
-    assert await dedup_ids(engine) == [7]
+    assert await dedup_ids(webhook_session_factory) == [7]
 
 
 async def test_process_error_still_returns_200_and_commits_dedup(
-    engine: AsyncEngine, secret: str, session: AsyncSession
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
 ) -> None:
     fake = FakeApplication()
     fake.raise_on_process = RuntimeError("boom")
@@ -158,11 +178,14 @@ async def test_process_error_still_returns_200_and_commits_dedup(
 
     assert response.status_code == 200
     assert fake.processed == []
-    assert await dedup_ids(engine) == [99]  # marker committed despite the error
+    assert await dedup_ids(webhook_session_factory) == [99]  # marker committed despite the error
 
 
 async def test_malformed_body_returns_200(
-    engine: AsyncEngine, secret: str, session: AsyncSession
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
 ) -> None:
     fake = FakeApplication()
     client = make_client(fake, engine)
@@ -178,11 +201,14 @@ async def test_malformed_body_returns_200(
 
     assert response.status_code == 200
     assert fake.processed == []
-    assert await dedup_ids(engine) == []
+    assert await dedup_ids(webhook_session_factory) == []
 
 
 async def test_missing_secret_header_when_no_secret_configured_allows(
-    engine: AsyncEngine, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # With no secret configured, the header is not required and processing runs.
     monkeypatch.setattr(settings, "webhook_secret", "")
@@ -193,4 +219,69 @@ async def test_missing_secret_header_when_no_secret_configured_allows(
 
     assert response.status_code == 200
     assert fake.processed == [5]
-    assert await dedup_ids(engine) == [5]
+    assert await dedup_ids(webhook_session_factory) == [5]
+
+
+async def test_invalid_structure_returns_200_without_dedup(
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
+) -> None:
+    fake = FakeApplication()
+    client = make_client(fake, engine)
+
+    response = client.post(
+        "/telegram/webhook",
+        json={},
+        headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
+    )
+
+    assert response.status_code == 200
+    assert fake.processed == []
+    assert await dedup_ids(webhook_session_factory) == []
+
+
+async def test_process_timeout_returns_200_and_commits_dedup(
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Timeout far shorter than the handler's sleep: ``asyncio.wait_for`` raises
+    # ``TimeoutError``, which is caught, and the dedup marker must still survive.
+    monkeypatch.setattr(settings, "webhook_update_timeout", 0.05)
+    fake = FakeApplication()
+    fake.sleep_duration = 0.5
+    client = make_client(fake, engine)
+
+    response = client.post(
+        "/telegram/webhook",
+        json=text_message_payload(11),
+        headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
+    )
+
+    assert response.status_code == 200
+    assert fake.processed == []
+    assert await dedup_ids(webhook_session_factory) == [11]  # marker committed before processing
+
+
+async def test_no_application_wired_returns_503(
+    engine: AsyncEngine,
+    webhook_session_factory: async_sessionmaker[AsyncSession],
+    secret: str,
+    session: AsyncSession,
+) -> None:
+    # ``application=None`` (placeholder lifespan) must 503 so Telegram redelivers,
+    # not fall through to an ``AttributeError`` on ``application.bot``.
+    client = TestClient(create_app(engine=engine, application=None))
+
+    response = client.post(
+        "/telegram/webhook",
+        json=text_message_payload(13),
+        headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
+    )
+
+    assert response.status_code == 503
+    assert await dedup_ids(webhook_session_factory) == []
