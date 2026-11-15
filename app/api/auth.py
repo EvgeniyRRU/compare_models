@@ -5,6 +5,7 @@ import hmac
 import json
 import time
 from dataclasses import dataclass
+from urllib.parse import parse_qsl
 
 
 class InvalidInitData(Exception):
@@ -24,11 +25,10 @@ def validate_init_data(
     max_age: int,
     now: int | None = None,
 ) -> InitData:
-    pairs: dict[str, str] = {}
-    for part in init_data.split("\n"):
-        if "=" in part:
-            key, _, value = part.partition("=")
-            pairs[key] = value
+    # Telegram ``WebApp.initData`` is ``&``-separated with URL-encoded values;
+    # ``parse_qsl`` splits on ``&`` and percent-decodes each value (the ``user``
+    # field is URL-encoded JSON).
+    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
 
     received_hash = pairs.pop("hash", None)
     if not received_hash:
@@ -40,8 +40,10 @@ def validate_init_data(
         raise InvalidInitData("bad signature")
 
     auth_date = int(pairs.get("auth_date", "0"))
+    if auth_date <= 0:
+        raise InvalidInitData("auth_date missing")
     now = int(time.time()) if now is None else now
-    if now - auth_date > max_age:
+    if not 0 <= now - auth_date <= max_age:
         raise InvalidInitData("expired")
 
     user_raw = pairs.get("user")

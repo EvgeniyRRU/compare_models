@@ -21,6 +21,7 @@ class TicketOut(BaseModel):
     version: int
     taken_at: datetime | None
     closed_at: datetime | None
+    next_reminder_at: datetime | None
     created_at: datetime
     updated_at: datetime
 

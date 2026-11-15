@@ -229,12 +229,50 @@ async def test_get_ticket_detail_and_404(session: AsyncSession, client: httpx.As
     assert missing.status_code == 404
 
 
-async def test_reopen_happy_path(session: AsyncSession, client: httpx.AsyncClient) -> None:
+async def test_get_ticket_non_author_non_assignee_404(
+    session: AsyncSession, client: httpx.AsyncClient
+) -> None:
+    support = await mk_user(session, 2001, Role.support)
+    await mk_user(session, 2002, Role.developer)
+    await session.commit()
+    ticket = await mk_ticket(session, support)
+    await session.commit()
+
+    response = await client.get(f"/api/tickets/{ticket.id}", headers=auth_headers(2002))
+
+    assert response.status_code == 404
+
+
+async def test_get_ticket_admin_any_ticket(
+    session: AsyncSession, client: httpx.AsyncClient
+) -> None:
+    support = await mk_user(session, 2001, Role.support)
+    await mk_user(session, 2003, Role.admin)
+    await session.commit()
+    ticket = await mk_ticket(session, support)
+    await session.commit()
+
+    response = await client.get(f"/api/tickets/{ticket.id}", headers=auth_headers(2003))
+
+    assert response.status_code == 200
+    assert response.json()["id"] == ticket.id
+
+
+async def test_reopen_happy_path(
+    session: AsyncSession, app: FastAPI, client: httpx.AsyncClient
+) -> None:
     support = await mk_user(session, 2001, Role.support)
     await mk_user(session, 2003, Role.admin)
     await session.commit()
     ticket = await mk_ticket(session, support, status=TicketStatus.resolved)
     await session.commit()
+
+    # Give the ticket an existing post so the re-sync edits rather than re-sends.
+    await session.execute(update(Ticket).where(Ticket.id == ticket.id).values(message_id=111))
+    await session.commit()
+
+    fake = FakePostClient()
+    app.state.post_client = fake
 
     response = await client.post(
         f"/api/tickets/{ticket.id}/reopen",
@@ -248,6 +286,8 @@ async def test_reopen_happy_path(session: AsyncSession, client: httpx.AsyncClien
     assert body["version"] == 2
     assert body["assignee_id"] is None
     assert body["closed_at"] is None
+    assert len(fake.edited) == 1
+    assert fake.sent == []
 
 
 async def test_reopen_stale_version_409(session: AsyncSession, client: httpx.AsyncClient) -> None:
@@ -282,7 +322,9 @@ async def test_reopen_non_admin_403(session: AsyncSession, client: httpx.AsyncCl
     assert response.status_code == 403
 
 
-async def test_reassign_happy_path(session: AsyncSession, client: httpx.AsyncClient) -> None:
+async def test_reassign_happy_path(
+    session: AsyncSession, app: FastAPI, client: httpx.AsyncClient
+) -> None:
     support = await mk_user(session, 2001, Role.support)
     dev1 = await mk_user(session, 2002, Role.developer)
     dev2 = await mk_user(session, 2003, Role.developer)
@@ -290,6 +332,13 @@ async def test_reassign_happy_path(session: AsyncSession, client: httpx.AsyncCli
     await session.commit()
     ticket = await mk_ticket(session, support, assignee=dev1, status=TicketStatus.in_progress)
     await session.commit()
+
+    # Give the ticket an existing post so the re-sync edits rather than re-sends.
+    await session.execute(update(Ticket).where(Ticket.id == ticket.id).values(message_id=111))
+    await session.commit()
+
+    fake = FakePostClient()
+    app.state.post_client = fake
 
     response = await client.post(
         f"/api/tickets/{ticket.id}/reassign",
@@ -302,6 +351,8 @@ async def test_reassign_happy_path(session: AsyncSession, client: httpx.AsyncCli
     assert body["assignee_id"] == dev2.id
     assert body["version"] == 2
     assert body["status"] == "in_progress"
+    assert len(fake.edited) == 1
+    assert fake.sent == []
 
 
 async def test_reassign_stale_version_409(session: AsyncSession, client: httpx.AsyncClient) -> None:

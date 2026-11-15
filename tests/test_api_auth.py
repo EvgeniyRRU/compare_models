@@ -1,12 +1,15 @@
 """Tests for Telegram initData validation and the auth header dependency."""
 
+import json
+import urllib.parse
+
 import httpx
 import pytest
 
 from app.api.auth import InitData, InvalidInitData, validate_init_data
 from app.main import create_app
 
-from .api_helpers import make_init_data, sign_fields
+from .api_helpers import build_init_data, sign_fields
 
 BOT_TOKEN = "test-token"
 MAX_AGE = 86_400
@@ -14,7 +17,7 @@ AUTH_DATE = 1_700_000_000
 
 
 def test_valid_init_data_returns_user_id_and_auth_date() -> None:
-    init_data = make_init_data(123, auth_date=AUTH_DATE, bot_token=BOT_TOKEN)
+    init_data = build_init_data(BOT_TOKEN, user_id=123, auth_date=AUTH_DATE)
 
     result = validate_init_data(init_data, bot_token=BOT_TOKEN, max_age=MAX_AGE, now=AUTH_DATE)
 
@@ -24,7 +27,7 @@ def test_valid_init_data_returns_user_id_and_auth_date() -> None:
 
 
 def test_tampered_hash_raises() -> None:
-    init_data = make_init_data(123, auth_date=AUTH_DATE, bot_token=BOT_TOKEN)
+    init_data = build_init_data(BOT_TOKEN, user_id=123, auth_date=AUTH_DATE)
     tampered = init_data[:-1] + ("0" if init_data[-1] != "0" else "1")
 
     with pytest.raises(InvalidInitData):
@@ -32,14 +35,14 @@ def test_tampered_hash_raises() -> None:
 
 
 def test_missing_hash_raises() -> None:
-    init_data = f"auth_date={AUTH_DATE}\nuser=123"
+    init_data = urllib.parse.urlencode({"auth_date": str(AUTH_DATE), "user": "123"})
 
     with pytest.raises(InvalidInitData):
         validate_init_data(init_data, bot_token=BOT_TOKEN, max_age=MAX_AGE, now=AUTH_DATE)
 
 
 def test_stale_auth_date_raises() -> None:
-    init_data = make_init_data(123, auth_date=AUTH_DATE, bot_token=BOT_TOKEN)
+    init_data = build_init_data(BOT_TOKEN, user_id=123, auth_date=AUTH_DATE)
 
     with pytest.raises(InvalidInitData):
         validate_init_data(
@@ -47,9 +50,28 @@ def test_stale_auth_date_raises() -> None:
         )
 
 
+def test_future_auth_date_raises() -> None:
+    init_data = build_init_data(BOT_TOKEN, user_id=123, auth_date=AUTH_DATE + MAX_AGE)
+
+    with pytest.raises(InvalidInitData):
+        validate_init_data(init_data, bot_token=BOT_TOKEN, max_age=MAX_AGE, now=AUTH_DATE)
+
+
+def test_auth_date_missing_raises() -> None:
+    user = json.dumps({"id": 123})
+    init_data = urllib.parse.urlencode(
+        {"user": user, "hash": sign_fields({"user": user}, BOT_TOKEN)}
+    )
+
+    with pytest.raises(InvalidInitData):
+        validate_init_data(init_data, bot_token=BOT_TOKEN, max_age=MAX_AGE, now=AUTH_DATE)
+
+
 def test_missing_user_raises() -> None:
     fields = {"auth_date": str(AUTH_DATE)}
-    init_data = f"auth_date={AUTH_DATE}\nhash={sign_fields(fields, BOT_TOKEN)}"
+    init_data = urllib.parse.urlencode(
+        {"auth_date": str(AUTH_DATE), "hash": sign_fields(fields, BOT_TOKEN)}
+    )
 
     with pytest.raises(InvalidInitData):
         validate_init_data(init_data, bot_token=BOT_TOKEN, max_age=MAX_AGE, now=AUTH_DATE)

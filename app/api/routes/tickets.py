@@ -91,6 +91,13 @@ async def get_ticket(
     ticket = await session.get(Ticket, ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="Обращение не найдено")
+    if (
+        user.role is not Role.admin
+        and ticket.author_id != user.id
+        and ticket.assignee_id != user.id
+    ):
+        # 404 (not 403) to avoid leaking the ticket's existence to an outsider.
+        raise HTTPException(status_code=404, detail="Обращение не найдено")
     return TicketOut.model_validate(ticket)
 
 
