@@ -16,7 +16,6 @@ FROM base AS dev
 COPY pyproject.toml ./
 COPY app ./app
 RUN pip install -e ".[dev]"
-COPY . .
 
 EXPOSE 8000
 
@@ -30,7 +29,6 @@ COPY pyproject.toml ./
 COPY app ./app
 COPY tests ./tests
 RUN pip install -e ".[test]"
-COPY . .
 
 CMD ["pytest"]
 
@@ -41,8 +39,10 @@ FROM base AS prod
 COPY pyproject.toml ./
 COPY app ./app
 RUN pip install -e "."
-COPY . .
 
-EXPOSE 8000
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 8000 9090
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
