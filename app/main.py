@@ -45,60 +45,66 @@ def create_app(
 
         tasks: list[asyncio.Task[Any]] = []
         polling = settings.bot_mode != "webhook"
-        if polling:
-            # ``run_polling``/``run_webhook`` drive the event loop themselves and
-            # therefore cannot be awaited inside FastAPI's async lifespan. Run the
-            # same PTB lifecycle manually: initialize -> start -> start_polling.
-            await application.initialize()
-            await application.start()
-            updater = application.updater
-            if updater is None:  # defensive: build_application() always creates one.
-                raise RuntimeError("polling mode requires an Updater")
-            await updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        else:
-            await application.initialize()
-            await application.bot.set_webhook(
-                url=settings.webhook_url, secret_token=settings.webhook_secret or None
-            )
-
-        client = BotPostClient(application.bot, settings.dev_chat_id)
-
-        async def send_reminder(text: str, reply_to_message_id: int | None) -> None:
-            await application.bot.send_message(
-                chat_id=settings.dev_chat_id, text=text, reply_to_message_id=reply_to_message_id
-            )
-
-        tasks.extend(
-            [
-                asyncio.create_task(
-                    run_post_sync_loop(
-                        engine=db_engine,
-                        session_factory=session_factory,
-                        client=client,
-                        interval=settings.post_sync_poll_interval,
-                    )
-                ),
-                asyncio.create_task(
-                    run_reminder_loop(
-                        session_factory=session_factory,
-                        send_reminder=send_reminder,
-                        interval=settings.reminder_poll_interval,
-                    )
-                ),
-                asyncio.create_task(
-                    run_draft_cleanup_loop(
-                        session_factory=session_factory, interval=settings.cleanup_poll_interval
-                    )
-                ),
-                asyncio.create_task(
-                    run_processed_updates_cleanup_loop(
-                        session_factory=session_factory, interval=settings.cleanup_poll_interval
-                    )
-                ),
-            ]
-        )
 
         try:
+            if polling:
+                # ``run_polling``/``run_webhook`` drive the event loop themselves and
+                # therefore cannot be awaited inside FastAPI's async lifespan, so run the
+                # same lifecycle manually: initialize -> start -> start_polling.
+                # NOTE: this skips PTB's ``post_init``/``post_shutdown`` callbacks.
+                # build_application() registers none today, but Stage 8 (Sentry/handlers)
+                # must not rely on ``post_init`` for setup — wire it explicitly instead.
+                await application.initialize()
+                await application.start()
+                updater = application.updater
+                if updater is None:  # defensive: build_application() always creates one.
+                    raise RuntimeError("polling mode requires an Updater")
+                await updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            else:
+                await application.initialize()
+                await application.bot.set_webhook(
+                    url=settings.webhook_url, secret_token=settings.webhook_secret or None
+                )
+
+            client = BotPostClient(application.bot, settings.dev_chat_id)
+
+            async def send_reminder(text: str, reply_to_message_id: int | None) -> None:
+                await application.bot.send_message(
+                    chat_id=settings.dev_chat_id, text=text, reply_to_message_id=reply_to_message_id
+                )
+
+            tasks.extend(
+                [
+                    asyncio.create_task(
+                        run_post_sync_loop(
+                            engine=db_engine,
+                            session_factory=session_factory,
+                            client=client,
+                            interval=settings.post_sync_poll_interval,
+                        )
+                    ),
+                    asyncio.create_task(
+                        run_reminder_loop(
+                            session_factory=session_factory,
+                            send_reminder=send_reminder,
+                            interval=settings.reminder_poll_interval,
+                        )
+                    ),
+                    asyncio.create_task(
+                        run_draft_cleanup_loop(
+                            session_factory=session_factory,
+                            interval=settings.cleanup_poll_interval,
+                        )
+                    ),
+                    asyncio.create_task(
+                        run_processed_updates_cleanup_loop(
+                            session_factory=session_factory,
+                            interval=settings.cleanup_poll_interval,
+                        )
+                    ),
+                ]
+            )
+
             yield
         finally:
             for task in tasks:
