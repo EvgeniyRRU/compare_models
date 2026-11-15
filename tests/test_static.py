@@ -40,3 +40,12 @@ async def test_api_still_takes_precedence_over_static(client: httpx.AsyncClient)
     response = await client.get("/api/tickets")
 
     assert response.status_code == 401  # missing initData, not the static 404
+
+
+async def test_health_still_takes_precedence_over_static(client: httpx.AsyncClient) -> None:
+    # The "/" static mount is registered last, so the /health routes must still
+    # match rather than falling through to the static file server.
+    response = await client.get("/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

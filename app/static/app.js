@@ -81,15 +81,6 @@ function tg() {
   return window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
 }
 
-function esc(value) {
-  return String(value == null ? "" : value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function truncate(text, limit) {
   const s = String(text == null ? "" : text);
   if (s.length <= limit) return s;
@@ -575,7 +566,7 @@ async function reassignControls(t) {
       performTicketAction(() =>
         api(
           "/api/tickets/" + t.id + "/reassign",
-          jsonBody("PUT", { version: t.version, assignee_id: Number(sel.value) }),
+          jsonBody("POST", { version: t.version, assignee_id: Number(sel.value) }),
         ),
       ),
     ),
