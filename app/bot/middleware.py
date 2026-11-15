@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 
 from app.db.models import User
 from app.db.session import async_session_factory
-from app.logging import bind_contextvars
+from app.logging import bind_contextvars, unbind_contextvars
 
 
 async def register_user_middleware(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -20,6 +20,8 @@ async def register_user_middleware(update: Update, context: ContextTypes.DEFAULT
     The stored ``User`` is a per-update snapshot (re-read each update); ``role`` is
     used for UX only — services re-read the role in-transaction for authority.
     """
+    unbind_contextvars("telegram_user_id", "ticket_id")
+
     user = update.effective_user
     if user is None:
         return

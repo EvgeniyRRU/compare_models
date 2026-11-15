@@ -16,6 +16,7 @@ from structlog.contextvars import (  # noqa: F401 — re-exported
     bound_contextvars,
     clear_contextvars,
     merge_contextvars,
+    unbind_contextvars,
 )
 from structlog.dev import ConsoleRenderer
 from structlog.processors import (
@@ -35,6 +36,7 @@ __all__ = [
     "clear_contextvars",
     "get_logger",
     "setup_logging",
+    "unbind_contextvars",
 ]
 
 _LOG_LEVELS: dict[str, int] = {
