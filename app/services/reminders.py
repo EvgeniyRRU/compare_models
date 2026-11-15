@@ -37,7 +37,7 @@ async def claim_due_reminders(
     sends the reminders (never inside the DB transaction). SKIP LOCKED makes
     concurrent workers disjoint (no duplicate sends).
     """
-    now = now or _now()
+    now = now if now is not None else _now()
     result = await session.execute(
         select(Ticket)
         .where(

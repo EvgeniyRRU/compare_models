@@ -76,14 +76,15 @@ async def run_reminder_pass(
     """
     async with session_factory() as session:
         due = await claim_due_reminders(session, now=now)
+        pending = [(t.id, reminder_text(t), t.message_id) for t in due]
         await session.commit()
 
     sent = 0
-    for ticket in due:
+    for ticket_id, text, message_id in pending:
         try:
-            await send_reminder(reminder_text(ticket), ticket.message_id)
+            await send_reminder(text, message_id)
         except Exception:  # noqa: BLE001 — retrying is impossible by design.
-            logger.exception("reminder send failed for ticket #%s", ticket.id)
+            logger.exception("reminder send failed for ticket #%s", ticket_id)
             continue
         sent += 1
     return sent

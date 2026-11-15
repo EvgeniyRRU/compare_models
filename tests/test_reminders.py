@@ -1,5 +1,6 @@
 """Tests for the reminder scheduler (real PostgreSQL via the conftest fixtures)."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -169,13 +170,18 @@ async def test_concurrent_workers_claim_disjoint_tickets(
     await session.commit()
 
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as s1, factory() as s2:
-        # Two workers claim with the same ``now``. SKIP LOCKED guarantees each due
-        # row is claimed by exactly one worker (no double-send).
-        first = await claim_due_reminders(s1, now=now)
-        second = await claim_due_reminders(s2, now=now)
-        await s1.commit()
-        await s2.commit()
+
+    async def worker() -> list[Ticket]:
+        async with factory() as s:
+            claimed = await claim_due_reminders(s, now=now)
+            await s.commit()
+            return claimed
+
+    # Two workers race with the same ``now``. SKIP LOCKED guarantees each due
+    # row is claimed by exactly one worker (no double-send). ``asyncio.timeout``
+    # fails fast if a regression blocks instead of skipping locked rows.
+    async with asyncio.timeout(10):
+        first, second = await asyncio.gather(worker(), worker())
 
     first_ids = {t.id for t in first}
     second_ids = {t.id for t in second}
@@ -183,7 +189,7 @@ async def test_concurrent_workers_claim_disjoint_tickets(
     assert first_ids | second_ids == {t.id for t in seeded}
 
 
-# 5. run_reminder_pass sends + returns count; send error is caught.
+# 5. run_reminder_pass sends + returns count.
 async def test_run_reminder_pass_sends_and_returns_count(
     session: AsyncSession, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -224,6 +230,7 @@ async def test_run_reminder_pass_sends_and_returns_count(
     assert len(sent) == 1
 
 
+# 6. run_reminder_pass catches a send error and does not retry.
 async def test_run_reminder_pass_catches_send_error(
     session: AsyncSession, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -252,7 +259,7 @@ async def test_run_reminder_pass_catches_send_error(
     assert set(calls) == {ok.id, bad.id}
 
 
-# 6. reminder_text contains the id and the Russian priority label.
+# 7. reminder_text contains the id and the Russian priority label.
 def test_reminder_text_contains_id_and_priority_label() -> None:
     ticket = Ticket(
         id=12,
