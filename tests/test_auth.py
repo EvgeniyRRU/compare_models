@@ -71,9 +71,7 @@ def test_fresh_boundary_accepted() -> None:
 
 
 def test_missing_hash_rejected() -> None:
-    raw = "auth_date=" + str(int(time.time())) + "&user=" + quote(
-        json.dumps({"id": 5}), safe=""
-    )
+    raw = "auth_date=" + str(int(time.time())) + "&user=" + quote(json.dumps({"id": 5}), safe="")
     with pytest.raises(AuthError):
         validate_init_data(raw, TOKEN, MAX_AGE)
 

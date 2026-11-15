@@ -41,12 +41,14 @@ async def test_reserve_first_wins_second_loses(session_factory) -> None:
 async def test_dispatch_collapses_duplicate_delivery(session_factory) -> None:
     rec = Recorder()
     u = make_update(100)
-    assert await dispatch_update(
-        u, processor=rec, session_factory=session_factory, settings=settings
-    ) == "ok"
-    assert await dispatch_update(
-        u, processor=rec, session_factory=session_factory, settings=settings
-    ) == "duplicate"
+    assert (
+        await dispatch_update(u, processor=rec, session_factory=session_factory, settings=settings)
+        == "ok"
+    )
+    assert (
+        await dispatch_update(u, processor=rec, session_factory=session_factory, settings=settings)
+        == "duplicate"
+    )
     assert rec.seen == [100]
 
 
@@ -72,8 +74,10 @@ async def test_cleanup_removes_only_old_rows(session_factory) -> None:
 
     async with session_factory() as session, session.begin():
         await session.execute(
-            text("UPDATE processed_updates SET created_at = now() - interval '49 hours' "
-                 "WHERE update_id = 1")
+            text(
+                "UPDATE processed_updates SET created_at = now() - interval '49 hours' "
+                "WHERE update_id = 1"
+            )
         )
     removed = await dedup.cleanup(session_factory, 48)
     assert removed == 1

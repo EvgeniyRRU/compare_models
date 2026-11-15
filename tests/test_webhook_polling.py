@@ -39,19 +39,13 @@ async def test_secret_required_and_constant_time(session_factory) -> None:
     async with client:
         r = await client.post("/telegram/webhook", json=update_payload(201))
         assert r.status_code == 403
-        r = await client.post(
-            "/telegram/webhook", json=update_payload(201), headers=WRONG_SECRET
-        )
+        r = await client.post("/telegram/webhook", json=update_payload(201), headers=WRONG_SECRET)
         assert r.status_code == 403
-        r = await client.post(
-            "/telegram/webhook", json=update_payload(201), headers=GOOD_SECRET
-        )
+        r = await client.post("/telegram/webhook", json=update_payload(201), headers=GOOD_SECRET)
         assert r.status_code == 200
         assert rec.seen == [201]
         # Duplicate delivery: processed once, still 200.
-        r = await client.post(
-            "/telegram/webhook", json=update_payload(201), headers=GOOD_SECRET
-        )
+        r = await client.post("/telegram/webhook", json=update_payload(201), headers=GOOD_SECRET)
         assert r.status_code == 200
         assert rec.seen == [201]
 
@@ -67,7 +61,9 @@ async def test_always_200_even_on_errors(session_factory) -> None:
         r = await client.post("/telegram/webhook", json={"update_id": 301, "nonsense": True})
         assert r.status_code == 200  # unparsable body dropped
         r = await client.request(
-            "POST", "/telegram/webhook", content=b"not json",
+            "POST",
+            "/telegram/webhook",
+            content=b"not json",
             headers={"content-type": "application/json"},
         )
         assert r.status_code == 200

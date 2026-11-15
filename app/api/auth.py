@@ -63,7 +63,7 @@ def _identity(data: dict[str, str]) -> tuple[int, str | None, str | None]:
     else:  # legacy flat fields (query values are strings)
         try:
             tid = int(data["id"])
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             raise AuthError("Некорректный telegram id") from None
         username = data.get("username")
         names = " ".join(x for x in (data.get("first_name"), data.get("last_name")) if x)
@@ -93,7 +93,7 @@ def validate_init_data(
 
     try:
         auth_ts = int(data["auth_date"])
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         raise AuthError("Нет метки времени сессии") from None
     if time.time() - auth_ts > max_age_seconds:
         raise AuthError("Сессия устарела, откройте приложение заново")
@@ -101,9 +101,7 @@ def validate_init_data(
     return _identity(data)
 
 
-async def authenticate(
-    init_data: str, session: AsyncSession, cfg: Settings
-) -> AuthUser:
+async def authenticate(init_data: str, session: AsyncSession, cfg: Settings) -> AuthUser:
     """Full request-time auth: crypto -> registration -> fresh role -> access gate."""
     telegram_id, username, full_name = validate_init_data(
         init_data, cfg.bot_token, cfg.auth_date_max_age_seconds

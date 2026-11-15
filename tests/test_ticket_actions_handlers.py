@@ -127,12 +127,20 @@ async def test_take_race_exactly_one_winner(session_factory) -> None:
 
     await asyncio.gather(
         handle_ticket_callback(
-            deps, user_id=DEV, callback_id="r1", ticket_id=ticket.id,
-            action=Action.take, expected_version=1,
+            deps,
+            user_id=DEV,
+            callback_id="r1",
+            ticket_id=ticket.id,
+            action=Action.take,
+            expected_version=1,
         ),
         handle_ticket_callback(
-            deps, user_id=814, callback_id="r2", ticket_id=ticket.id,
-            action=Action.take, expected_version=1,
+            deps,
+            user_id=814,
+            callback_id="r2",
+            ticket_id=ticket.id,
+            action=Action.take,
+            expected_version=1,
         ),
     )
     alerts = sorted(a.text or "" for a in fake.alerts)

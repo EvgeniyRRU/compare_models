@@ -138,9 +138,7 @@ async def get_ticket(session: AsyncSession, ticket_id: int) -> Ticket | None:
 
 async def _lock_ticket(session: AsyncSession, ticket_id: int) -> Ticket:
     ticket = (
-        await session.execute(
-            select(Ticket).where(Ticket.id == ticket_id).with_for_update()
-        )
+        await session.execute(select(Ticket).where(Ticket.id == ticket_id).with_for_update())
     ).scalar_one_or_none()
     if ticket is None:
         raise NotFound()
@@ -174,9 +172,7 @@ async def _apply(
     ticket = await _lock_ticket(session, ticket_id)
 
     # Actor role: fresh read, no caching.
-    actor_role = await session.scalar(
-        select(User.role).where(User.telegram_id == actor_id)
-    )
+    actor_role = await session.scalar(select(User.role).where(User.telegram_id == actor_id))
     if actor_role is None:
         raise Forbidden("Нет доступа")
 
@@ -197,9 +193,7 @@ async def _apply(
     if action is Action.reassign:
         assert target_assignee_id is not None
         executor = await session.scalar(
-            select(User)
-            .where(User.telegram_id == target_assignee_id)
-            .with_for_update(read=True)
+            select(User).where(User.telegram_id == target_assignee_id).with_for_update(read=True)
         )
         if not (executor and executor.role and executor.role.can_execute):
             raise ValidationError("Переназначить можно только developer или admin")
@@ -255,7 +249,7 @@ async def _apply(
                 Ticket.status == ticket.status,
             )
             .values(**values)
-        )
+        ),
     )
     if result.rowcount != 1:  # pragma: no cover - protected by FOR UPDATE + version check
         raise VersionConflict()
@@ -299,8 +293,12 @@ async def take(
     expected_version: int,
 ) -> Ticket:
     return await _apply(
-        session, settings, ticket_id=ticket_id, actor_id=actor_id,
-        action=Action.take, expected_version=expected_version,
+        session,
+        settings,
+        ticket_id=ticket_id,
+        actor_id=actor_id,
+        action=Action.take,
+        expected_version=expected_version,
     )
 
 
@@ -316,8 +314,12 @@ async def apply_action(
 ) -> Ticket:
     assert action is not Action.take
     return await _apply(
-        session, settings, ticket_id=ticket_id, actor_id=actor_id,
-        action=action, expected_version=expected_version,
+        session,
+        settings,
+        ticket_id=ticket_id,
+        actor_id=actor_id,
+        action=action,
+        expected_version=expected_version,
         target_assignee_id=target_assignee_id,
     )
 

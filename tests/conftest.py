@@ -26,9 +26,7 @@ from app.main import create_app
 from tests.fake_gateway import FakeGateway
 
 
-def sign_init_data(
-    pairs: dict[str, str], *, token: str | None = None, auth_age: int = 0
-) -> str:
+def sign_init_data(pairs: dict[str, str], *, token: str | None = None, auth_age: int = 0) -> str:
     """Build a valid initDataRaw (percent-encoded), Telegram-style HMAC-SHA256."""
     bot_token = token or settings.bot_token
     data = dict(pairs)
@@ -54,6 +52,7 @@ def user_pairs(
             ensure_ascii=False,
         )
     }
+
 
 TABLES = (
     "processed_updates",

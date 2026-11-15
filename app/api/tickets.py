@@ -135,19 +135,16 @@ async def list_tickets(
         author = aliased(User)
         assignee = aliased(User)
         rows = (
-            (
-                await session.execute(
-                    select(Ticket, author, assignee)
-                    .outerjoin(author, Ticket.author_id == author.telegram_id)
-                    .outerjoin(assignee, Ticket.assignee_id == assignee.telegram_id)
-                    .where(*conditions)
-                    .order_by(Ticket.created_at.desc(), Ticket.id.desc())
-                    .limit(page_limit)
-                    .offset(page_offset)
-                )
+            await session.execute(
+                select(Ticket, author, assignee)
+                .outerjoin(author, Ticket.author_id == author.telegram_id)
+                .outerjoin(assignee, Ticket.assignee_id == assignee.telegram_id)
+                .where(*conditions)
+                .order_by(Ticket.created_at.desc(), Ticket.id.desc())
+                .limit(page_limit)
+                .offset(page_offset)
             )
-            .all()
-        )
+        ).all()
         items = [_card(t, a, g) for t, a, g in rows]
     return {"items": items, "total": total or 0, "limit": page_limit, "offset": page_offset}
 
@@ -162,9 +159,7 @@ def _scope_conditions(scope: str, user: AuthUser) -> list[ColumnElement[bool]]:
         return [Ticket.author_id == user.telegram_id]
     if user.role is Role.developer:
         return [Ticket.assignee_id == user.telegram_id]
-    return [
-        or_(Ticket.author_id == user.telegram_id, Ticket.assignee_id == user.telegram_id)
-    ]
+    return [or_(Ticket.author_id == user.telegram_id, Ticket.assignee_id == user.telegram_id)]
 
 
 @router.get("/tickets/{ticket_id}")

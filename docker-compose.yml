@@ -59,5 +59,36 @@ services:
       postgres:
         condition: service_healthy
 
+  # Production-like single container (non-root, no source mounts). Secrets come from env.
+  app-prod:
+    build:
+      context: .
+      target: prod
+    profiles: ["prod"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rent:rent@postgres:5432/rent_bot
+    ports:
+      - "8000:8000"
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Run migrations as a one-shot job before/alongside rollout:
+  #   docker compose --profile prod run --rm migrate
+  migrate:
+    build:
+      context: .
+      target: prod
+    profiles: ["prod"]
+    command: ["alembic", "upgrade", "head"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rent:rent@postgres:5432/rent_bot
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:

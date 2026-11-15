@@ -19,9 +19,7 @@ from app.logging_setup import get_logger
 log = get_logger("services.dedup")
 
 
-async def reserve(
-    session_factory: async_sessionmaker[AsyncSession], update_id: int
-) -> bool:
+async def reserve(session_factory: async_sessionmaker[AsyncSession], update_id: int) -> bool:
     """INSERT ON CONFLICT DO NOTHING; True when this caller got the update."""
     async with session_factory() as session, session.begin():
         result = cast(

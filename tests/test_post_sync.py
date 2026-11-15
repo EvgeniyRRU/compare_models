@@ -108,9 +108,7 @@ async def test_sweeper_resyncs_after_take(db_session, session_factory, settings)
     t = await mk_ticket(db_session, n=6)
     gw = FakeGateway()
     await sync_ticket(gw, session_factory, settings, t.id)
-    await tickets_svc.take(
-        db_session, settings, ticket_id=t.id, actor_id=916, expected_version=1
-    )
+    await tickets_svc.take(db_session, settings, ticket_id=t.id, actor_id=916, expected_version=1)
     await db_session.commit()  # release the FOR UPDATE lock for the sweeper session
     assert await sweep_once(gw, session_factory, settings) == 1
     assert gw.kinds() == ["send", "edit"]
@@ -123,9 +121,7 @@ async def test_try_lock_skips_when_busy(db_session, session_factory, settings) -
     t = await mk_ticket(db_session, n=7)
     lock = await _lock_conn(settings)
     try:
-        acquired = await lock.fetchval(
-            "SELECT pg_try_advisory_lock($1, $2)", LOCK_NAMESPACE, t.id
-        )
+        acquired = await lock.fetchval("SELECT pg_try_advisory_lock($1, $2)", LOCK_NAMESPACE, t.id)
         assert acquired is True
         gw = FakeGateway()
         done = await sync_ticket(gw, session_factory, settings, t.id)
@@ -144,9 +140,7 @@ async def test_lock_released_after_error(db_session, session_factory, settings) 
         await sync_ticket(gw, session_factory, settings, t.id)
     probe = await _lock_conn(settings)
     try:
-        got = await probe.fetchval(
-            "SELECT pg_try_advisory_lock($1, $2)", LOCK_NAMESPACE, t.id
-        )
+        got = await probe.fetchval("SELECT pg_try_advisory_lock($1, $2)", LOCK_NAMESPACE, t.id)
         assert got is True
         await probe.fetchval("SELECT pg_advisory_unlock($1, $2)", LOCK_NAMESPACE, t.id)
     finally:
@@ -172,9 +166,7 @@ async def test_lock_released_on_cancel(db_session, session_factory, settings) ->
     try:
         got = False
         for _ in range(40):
-            got = await probe.fetchval(
-                "SELECT pg_try_advisory_lock($1, $2)", LOCK_NAMESPACE, t.id
-            )
+            got = await probe.fetchval("SELECT pg_try_advisory_lock($1, $2)", LOCK_NAMESPACE, t.id)
             if got:
                 break
             await asyncio.sleep(0.05)

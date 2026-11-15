@@ -31,8 +31,13 @@ async def mk_ticket(
 ) -> int:
     async with sf() as s, s.begin():
         ticket = await tickets_svc.create(
-            s, settings, author_id=author, description=desc, priority=priority,
-            request_id=rid, tenant_id=None,
+            s,
+            settings,
+            author_id=author,
+            description=desc,
+            priority=priority,
+            request_id=rid,
+            tenant_id=None,
         )
         return ticket.id
 

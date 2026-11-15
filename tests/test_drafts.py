@@ -141,8 +141,7 @@ async def test_cleanup_expired_drafts(db_session, session_factory) -> None:
     async with db_session.begin():
         await db_session.execute(
             text(
-                "UPDATE ticket_drafts SET created_at = now() - interval '25 hours' "
-                "WHERE id = :did"
+                "UPDATE ticket_drafts SET created_at = now() - interval '25 hours' WHERE id = :did"
             ),
             {"did": old.id},
         )

@@ -74,9 +74,7 @@ async def _sync_under_lock(
         markup = build_markup(ticket)
         message_id = ticket.message_id
         if forced or message_id is None:
-            message_id = await gateway.send_message(
-                settings.dev_chat_id, text, reply_markup=markup
-            )
+            message_id = await gateway.send_message(settings.dev_chat_id, text, reply_markup=markup)
             result = "republished" if forced else "sent"
         else:
             try:

@@ -23,15 +23,15 @@ async def set_role(
         raise Forbidden("Назначать роли может только админ")
 
     target = (
-        await session.execute(
-            select(User).where(User.telegram_id == target_id).with_for_update()
-        )
+        await session.execute(select(User).where(User.telegram_id == target_id).with_for_update())
     ).scalar_one_or_none()
     if target is None:
         raise NotFound("Пользователь не найден")
 
-    removing_executor_rights = target.role is not None and target.role.can_execute and (
-        new_role is None or not new_role.can_execute
+    removing_executor_rights = (
+        target.role is not None
+        and target.role.can_execute
+        and (new_role is None or not new_role.can_execute)
     )
     if removing_executor_rights:
         active = list(

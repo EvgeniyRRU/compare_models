@@ -146,8 +146,7 @@ async def ask(
         force_reply = True
     elif step is DraftStep.tenant_id:
         text = (
-            f"{prefix}Шаг 4/5. Введите ID арендатора (до {MAX_ID} символов)"
-            " или пропустите кнопкой:"
+            f"{prefix}Шаг 4/5. Введите ID арендатора (до {MAX_ID} символов) или пропустите кнопкой:"
         )
         reply_markup = skip_markup(draft_id, version)
     else:  # confirm

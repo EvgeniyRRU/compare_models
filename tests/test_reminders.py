@@ -43,8 +43,7 @@ async def backdate_due(session, ticket_id: int, minutes: int) -> None:
     """Отмотать срок напоминания и момент входа в new на N минут назад."""
     await session.execute(
         text(
-            "UPDATE tickets SET next_reminder_at = now() - make_interval(mins => :m) "
-            "WHERE id = :id"
+            "UPDATE tickets SET next_reminder_at = now() - make_interval(mins => :m) WHERE id = :id"
         ),
         {"m": minutes, "id": ticket_id},
     )
