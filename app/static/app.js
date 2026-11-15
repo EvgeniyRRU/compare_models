@@ -131,6 +131,7 @@ function jsonBody(method, body) {
 function errorMessage(err) {
   if (err && (err.status === 401 || err.status === 403)) return "Доступ запрещён";
   if (err && err.status === 404) return "Не найдено";
+  if (err && !err.status) return "Нет соединения";
   if (err && err.message) return err.message;
   return "Ошибка";
 }
@@ -246,8 +247,21 @@ async function loadMe() {
     state.role = me.role;
     renderApp();
   } catch (err) {
-    renderFatal(err);
+    if (err.status === 404) {
+      // A brand-new user who never /start'ed the bot: no DB row yet.
+      renderAccessGate();
+    } else {
+      renderFatal(err);
+    }
   }
+}
+
+function renderAccessGate() {
+  document.getElementById("tabbar").innerHTML = "";
+  document.getElementById("filters").innerHTML = "";
+  const content = document.getElementById("content");
+  content.innerHTML = "";
+  content.appendChild(message("Обратитесь к администратору для доступа к боту"));
 }
 
 function renderFatal(err) {
@@ -263,12 +277,8 @@ function renderFatal(err) {
  * ------------------------------------------------------------------ */
 
 function renderApp() {
-  const content = document.getElementById("content");
   if (state.role === null) {
-    document.getElementById("tabbar").innerHTML = "";
-    document.getElementById("filters").innerHTML = "";
-    content.innerHTML = "";
-    content.appendChild(message("Обратитесь к администратору для доступа к боту"));
+    renderAccessGate();
     return;
   }
   renderTabbar();
@@ -360,15 +370,15 @@ async function renderTicketList() {
   content.innerHTML = "";
   content.appendChild(loading());
 
-  const params = new URLSearchParams();
-  params.set("scope", currentScope());
-  if (state.status) params.set("status", state.status);
-  if (state.priority) params.set("priority", state.priority);
-  params.set("page", String(state.page));
-  params.set("page_size", String(state.pageSize));
-
   try {
-    const data = await api("/api/tickets?" + params.toString());
+    let data = await fetchTicketList();
+    // Clamp the page after the dataset shrank (e.g. the last item on the
+    // current page was resolved/reassigned), so we never show an empty page.
+    const maxPage = Math.max(1, Math.ceil(data.total / state.pageSize));
+    if (state.page > maxPage) {
+      state.page = maxPage;
+      data = await fetchTicketList();
+    }
     state.total = data.total;
     content.innerHTML = "";
     if (!data.items.length) {
@@ -383,6 +393,16 @@ async function renderTicketList() {
     content.innerHTML = "";
     content.appendChild(message(errorMessage(err)));
   }
+}
+
+async function fetchTicketList() {
+  const params = new URLSearchParams();
+  params.set("scope", currentScope());
+  if (state.status) params.set("status", state.status);
+  if (state.priority) params.set("priority", state.priority);
+  params.set("page", String(state.page));
+  params.set("page_size", String(state.pageSize));
+  return api("/api/tickets?" + params.toString());
 }
 
 function ticketRow(t) {

@@ -1,5 +1,6 @@
 """Tests for the Mini App ``/api/me`` endpoint (real PostgreSQL)."""
 
+import time
 from collections.abc import AsyncIterator
 
 import httpx
@@ -11,7 +12,7 @@ from app.db.enums import Role
 from app.db.models import User
 from app.main import create_app
 
-from .api_helpers import auth_headers
+from .api_helpers import DEFAULT_BOT_TOKEN, auth_headers, build_init_data
 
 
 @pytest.fixture
@@ -77,3 +78,11 @@ async def test_me_missing_header_401(client: httpx.AsyncClient) -> None:
     response = await client.get("/api/me")
 
     assert response.status_code == 401
+
+
+async def test_me_unknown_user_404(client: httpx.AsyncClient) -> None:
+    init_data = build_init_data(DEFAULT_BOT_TOKEN, user_id=999_999, auth_date=int(time.time()))
+
+    response = await client.get("/api/me", headers={"X-Telegram-Init-Data": init_data})
+
+    assert response.status_code == 404

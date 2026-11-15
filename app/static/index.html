@@ -5,6 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Поддержка аренды</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+      // Apply the Telegram theme before the stylesheet paints to avoid a
+      // light-theme flash for dark-mode users. Mirrors applyTheme() in app.js.
+      (function () {
+        var app = window.Telegram && window.Telegram.WebApp;
+        var scheme = app && app.colorScheme ? app.colorScheme : "light";
+        var dark = scheme === "dark";
+        var tp = (app && app.themeParams) || {};
+        function get(key, fallback) {
+          return tp[key] ? tp[key] : fallback;
+        }
+        var root = document.documentElement;
+        root.style.setProperty("--bg-color", get("bg_color", dark ? "#18222d" : "#ffffff"));
+        root.style.setProperty("--text-color", get("text_color", dark ? "#f5f5f5" : "#000000"));
+        root.style.setProperty("--hint-color", get("hint_color", dark ? "#8a9aa8" : "#8e8e93"));
+        root.style.setProperty("--accent", get("button_color", dark ? "#5eb0e6" : "#2ea6ff"));
+        root.style.setProperty("--accent-text", get("button_text_color", "#ffffff"));
+        root.style.setProperty(
+          "--card-bg",
+          get("secondary_bg_color", dark ? "#232e3c" : "#f2f3f5"),
+        );
+        root.style.setProperty("--divider", dark ? "#2b3644" : "#e5e5ea");
+      })();
+    </script>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
