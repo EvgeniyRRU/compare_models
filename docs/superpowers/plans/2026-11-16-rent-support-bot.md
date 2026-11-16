@@ -393,9 +393,10 @@ from app.config import Settings
 
 
 def test_defaults(monkeypatch):
-    # test-сервис compose ставит LOG_FORMAT=pretty в env, а host .env пробрасывается
-    # через env_file (required: false) — уберём, чтобы проверить реальные дефолты
+    # test-сервис compose ставит LOG_FORMAT=pretty в env — уберём, чтобы проверить реальный дефолт
     monkeypatch.delenv("LOG_FORMAT", raising=False)
+    # host .env подхватывается compose (env_file required: false) и пробрасывается в контейнер —
+    # уберём, чтобы проверить реальный дефолт
     monkeypatch.delenv("BOOTSTRAP_ADMIN_IDS", raising=False)
     s = Settings(
         bot_token="1:AA",
