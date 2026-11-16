@@ -41,12 +41,12 @@ class Ticket(Base):
             name="ck_tickets_new_unassigned",
         ),
         CheckConstraint(
-            "status IN ('in_progress', 'waiting_info') OR assignee_id IS NULL",
-            name="ck_tickets_assignee_only_active",
+            "status NOT IN ('in_progress', 'waiting_info') OR assignee_id IS NOT NULL",
+            name="ck_tickets_active_requires_assignee",
         ),
         CheckConstraint(
-            "status IN ('in_progress', 'waiting_info') OR taken_at IS NULL",
-            name="ck_tickets_taken_at_only_active",
+            "status NOT IN ('in_progress', 'waiting_info') OR taken_at IS NOT NULL",
+            name="ck_tickets_active_requires_taken_at",
         ),
         CheckConstraint(
             "status IN ('resolved', 'rejected', 'duplicate') OR closed_at IS NULL",

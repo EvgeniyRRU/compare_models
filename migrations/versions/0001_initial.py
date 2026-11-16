@@ -60,8 +60,8 @@ def upgrade() -> None:
         sa.CheckConstraint("version >= 1", name="ck_tickets_version"),
         sa.CheckConstraint("post_synced_version >= 0", name="ck_tickets_post_synced_version"),
         sa.CheckConstraint("status <> 'new' OR (assignee_id IS NULL AND taken_at IS NULL)", name="ck_tickets_new_unassigned"),
-        sa.CheckConstraint("status IN ('in_progress', 'waiting_info') OR assignee_id IS NULL", name="ck_tickets_assignee_only_active"),
-        sa.CheckConstraint("status IN ('in_progress', 'waiting_info') OR taken_at IS NULL", name="ck_tickets_taken_at_only_active"),
+        sa.CheckConstraint("status NOT IN ('in_progress', 'waiting_info') OR assignee_id IS NOT NULL", name="ck_tickets_active_requires_assignee"),
+        sa.CheckConstraint("status NOT IN ('in_progress', 'waiting_info') OR taken_at IS NOT NULL", name="ck_tickets_active_requires_taken_at"),
         sa.CheckConstraint("status IN ('resolved', 'rejected', 'duplicate') OR closed_at IS NULL", name="ck_tickets_closed_at_only_final"),
         sa.CheckConstraint("status NOT IN ('resolved', 'rejected', 'duplicate') OR closed_at IS NOT NULL", name="ck_tickets_closed_at_required_final"),
     )
