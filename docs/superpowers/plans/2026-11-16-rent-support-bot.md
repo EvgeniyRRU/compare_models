@@ -567,6 +567,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'app.log'`
 """Структурированные JSON-логи (structlog). Контекстные теги — через contextvars."""
 import logging
 import sys
+from typing import cast
 
 import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars, unbind_contextvars
@@ -574,7 +575,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars, unbind_co
 
 def configure_logging(level: str, fmt: str) -> None:
     clear_contextvars()
-    processors: list = [
+    processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
@@ -600,8 +601,8 @@ def configure_logging(level: str, fmt: str) -> None:
         lg.propagate = True
 
 
-def get_logger(component: str) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger().bind(component=component)
+def get_logger(component: str) -> structlog.BoundLogger:
+    return cast(structlog.BoundLogger, structlog.get_logger().bind(component=component))
 
 
 __all__ = ["configure_logging", "get_logger", "bind_contextvars", "unbind_contextvars"]
