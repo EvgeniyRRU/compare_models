@@ -1540,7 +1540,7 @@ import pytest
 import pytest_asyncio
 
 from app.config import Settings
-from app.db import DB, make_db
+from app.db import make_db
 from tests.fakes import RecordingBot
 
 TEST_DB_URL = os.environ.get(
@@ -1558,7 +1558,7 @@ def _create_test_database() -> None:
     prefix, db_name = _split(TEST_DB_URL)
 
     async def _run() -> None:
-        dsn = prefix + "/postgres".replace("postgresql+asyncpg://", "postgresql://")
+        dsn = prefix.replace("postgresql+asyncpg://", "postgresql://") + "/postgres"
         conn = await asyncpg.connect(dsn)
         try:
             await conn.execute(
@@ -1645,6 +1645,7 @@ async def tg_app(settings, db, bot):
 ```
 
 Note: `_env_file=None` — pydantic-settings принимает ключевое `_env_file` для отключения .env; все значения даются явно.
+Note: `test_database` синхронный намеренно — online-путь `migrations/env.py` вызывает `asyncio.run()`: in-process `alembic upgrade head` должен запускаться из синхронного контекста (async-фиксьюра дала бы RuntimeError).
 
 - [ ] **Step 2: Create `tests/fakes.py`**
 
@@ -1791,7 +1792,7 @@ def make_init_data(
     if age_seconds:
         params["auth_date"] = str(int(time.time()) - age_seconds)
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
-    secret = hmac.new(token.encode(), b"WebAppData", hashlib.sha256)
+    secret = hmac.new(token.encode(), b"WebAppData", hashlib.sha256).digest()
     digest = hmac.new(secret, data_check_string.encode(), hashlib.sha256).hexdigest()
     return "&".join(f"{k}={quote(v, safe='')}" for k, v in sorted(params.items())) + f"&hash={digest}"
 ```
@@ -1799,7 +1800,7 @@ def make_init_data(
 - [ ] **Step 3: Verify fakes import and health test runs now**
 
 Run: `docker compose --profile test run --rm test pytest tests/integration/test_health.py tests/unit/ -q`
-Expected: 5 passed.
+Expected: 10 passed (8 unit + 2 health).
 Run: `docker compose --profile test run --rm test python -c "from tests.fakes import RecordingBot, make_update, make_init_data; print('ok')"`
 Expected: `ok`
 
@@ -5858,7 +5859,7 @@ def validate_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> 
     if abs(time.time() - auth_date) > max_age_seconds:
         raise AuthError("auth_date too old")
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
-    secret = hmac.new(bot_token.encode(), b"WebAppData", hashlib.sha256)
+    secret = hmac.new(bot_token.encode(), b"WebAppData", hashlib.sha256).digest()
     digest = hmac.new(secret, data_check_string.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(digest, hash_value):
         raise AuthError("hash mismatch")
