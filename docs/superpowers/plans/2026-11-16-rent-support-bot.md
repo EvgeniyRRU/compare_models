@@ -565,6 +565,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'app.log'`
 
 ```python
 """Структурированные JSON-логи (structlog). Контекстные теги — через contextvars."""
+
 import logging
 import sys
 from typing import cast
