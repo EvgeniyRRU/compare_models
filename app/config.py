@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Annotated, Any
 
 from pydantic import BeforeValidator, Field
@@ -64,3 +65,8 @@ class Settings(BaseSettings):
                 raise ValueError("WEBHOOK_URL required when BOT_MODE=webhook")
             if not self.webhook_secret_token:
                 raise ValueError("WEBHOOK_SECRET_TOKEN required when BOT_MODE=webhook")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
