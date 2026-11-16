@@ -1124,10 +1124,17 @@ from app.models.base import Base, created_at_column, updated_at_column
 class Ticket(Base):
     __tablename__ = "tickets"
     __table_args__ = (
-        CheckConstraint("length(description) BETWEEN 1 AND 3000", name="ck_tickets_description_len"),
-        CheckConstraint("priority IN ('critical', 'high', 'medium', 'low')", name="ck_tickets_priority"),
+        CheckConstraint(
+            "length(description) BETWEEN 1 AND 3000", name="ck_tickets_description_len"
+        ),
+        CheckConstraint(
+            "priority IN ('critical', 'high', 'medium', 'low')", name="ck_tickets_priority"
+        ),
         CheckConstraint("length(request_id) BETWEEN 1 AND 64", name="ck_tickets_request_id_len"),
-        CheckConstraint("tenant_id IS NULL OR length(tenant_id) BETWEEN 1 AND 64", name="ck_tickets_tenant_id_len"),
+        CheckConstraint(
+            "tenant_id IS NULL OR length(tenant_id) BETWEEN 1 AND 64",
+            name="ck_tickets_tenant_id_len",
+        ),
         CheckConstraint(
             "status IN ('new', 'in_progress', 'waiting_info', 'resolved', 'rejected', 'duplicate')",
             name="ck_tickets_status",
@@ -1167,10 +1174,14 @@ class Ticket(Base):
     priority: Mapped[str] = mapped_column(String(16), nullable=False)
     request_id: Mapped[str] = mapped_column(String(64), nullable=False)
     tenant_id: Mapped[str | None] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="new", server_default="new")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="new", server_default="new"
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     message_id: Mapped[int | None] = mapped_column(BigInteger)
-    post_synced_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    post_synced_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = created_at_column()
     updated_at: Mapped[datetime] = updated_at_column()
     taken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
