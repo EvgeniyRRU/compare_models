@@ -1622,6 +1622,8 @@ def settings() -> Settings:
         bootstrap_admin_ids=[111],
         database_url=TEST_DB_URL,
         mini_app_url="https://mini.example/",
+        log_format="json",
+        sentry_dsn=None,
         _env_file=None,
     )
 
@@ -1634,6 +1636,8 @@ def bot() -> RecordingBot:
 @pytest_asyncio.fixture
 async def tg_app(settings, db, bot):
     """PTB-приложение с RecordingBot (без сети). Используется тестами Stage 5+."""
+    # NB: PTB 22.8 start() НЕ вызывает post_init (только run_polling/run_webhook) —
+    # bot.commands / bot.webhook под tg_app не устанавливаются
     from app.bot.application import build_application
 
     app = build_application(settings, db, bot=bot)
@@ -1667,6 +1671,7 @@ class RecordingBot(Bot):
 
     def __init__(self, token: str):
         super().__init__(token)
+        self._frozen = False  # PTB замораживает объект в Bot.__init__; тесты переприсваивают поля в рантайме
         self.sent: list[dict[str, Any]] = []
         self.edited: list[dict[str, Any]] = []
         self.answered: list[dict[str, Any]] = []
@@ -1677,7 +1682,7 @@ class RecordingBot(Bot):
         self.send_hook: Any = None  # async callable — пауза для тестов конкурентности
 
     async def initialize(self, *args: Any, **kwargs: Any) -> None:
-        return None
+        self._bot_user = await self.get_me()
 
     async def shutdown(self, *args: Any, **kwargs: Any) -> None:
         return None
@@ -1796,8 +1801,8 @@ def make_init_data(
     if username:
         payload["username"] = username
     params = {"user": json.dumps(payload, separators=(",", ":"))}
-    if age_seconds:
-        params["auth_date"] = str(int(time.time()) - age_seconds)
+    # auth_date всегда присутствует (даже при age_seconds=0): validate_init_data требует его
+    params["auth_date"] = str(int(time.time()) - age_seconds)
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
     secret = hmac.new(token.encode(), b"WebAppData", hashlib.sha256).digest()
     digest = hmac.new(secret, data_check_string.encode(), hashlib.sha256).hexdigest()
