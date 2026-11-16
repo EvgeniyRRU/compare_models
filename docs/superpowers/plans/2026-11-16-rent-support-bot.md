@@ -739,13 +739,10 @@ git commit -m "feat: db layer with dedicated NullPool engine for advisory locks"
 ```python
 # tests/integration/test_health.py
 import httpx
-import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 
 from app.api.health import router as health_router
-from app.db import make_db
-from tests.conftest import TEST_DB_URL
 
 
 @pytest_asyncio.fixture
@@ -789,7 +786,7 @@ async def live() -> dict:
 
 
 @router.get("/health/ready")
-async def ready(request: Request):
+async def ready(request: Request) -> JSONResponse | dict:
     try:
         async with request.app.state.db.session_factory() as session:
             await session.execute(text("SELECT 1"))
@@ -1028,8 +1025,14 @@ git commit -m "chore: async alembic env (dev/test images get alembic files)"
 
 - [ ] **Step 1: Полный прогон**
 
-Run: `docker compose --profile test run --rm test pytest -q`
-Expected: all passed (config, log, health — 5 тестов).
+Run: `docker compose --profile test run --rm test pytest tests/unit -q`
+Expected: all passed (config + log — 8 тестов).
+
+Note: `tests/integration/test_health.py` (Task 1.6) до Task 2.3 не коллектируется
+(`tests/conftest.py` ещё не существует — pytest падает на collection), поэтому
+stage-1 прогон ограничен `tests/unit`. Проверка health-тестов — Step 4 Task 1.6,
+который выполняется после Task 2.3.
+
 Run: `docker compose --profile test run --rm test ruff check app tests && docker compose --profile test run --rm test mypy app`
 Expected: no errors. При ошибках mypy — исправить.
 
