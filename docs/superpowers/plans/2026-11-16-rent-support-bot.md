@@ -1671,7 +1671,9 @@ class RecordingBot(Bot):
 
     def __init__(self, token: str):
         super().__init__(token)
-        self._frozen = False  # PTB замораживает объект в Bot.__init__; тесты переприсваивают поля в рантайме
+        self._frozen = (
+            False  # PTB замораживает объект в Bot.__init__; тесты переприсваивают поля в рантайме
+        )
         self.sent: list[dict[str, Any]] = []
         self.edited: list[dict[str, Any]] = []
         self.answered: list[dict[str, Any]] = []
@@ -1920,21 +1922,11 @@ async def test_ticket_numbers_are_sequential(db):
 
 async def test_one_draft_per_user(db):
     uid = await _make_user(db.session_factory)
-    for i in range(2):
-        async with db.session_factory() as s, s.begin():
-            await s.execute(
-                text("INSERT INTO ticket_drafts (user_id, step, version) VALUES (:u, 'description', 1)"),
-                {"u": uid},
-            )
-        if i == 1:
-            break
-    # вторая вставка упала
+    async with db.session_factory() as s, s.begin():
+        await s.execute(text("INSERT INTO ticket_drafts (user_id, step, version) VALUES (:u, 'description', 1)"), {"u": uid})
     with pytest.raises(IntegrityError):
         async with db.session_factory() as s, s.begin():
-            await s.execute(
-                text("INSERT INTO ticket_drafts (user_id, step, version) VALUES (:u, 'description', 1)"),
-                {"u": uid},
-            )
+            await s.execute(text("INSERT INTO ticket_drafts (user_id, step, version) VALUES (:u, 'description', 1)"), {"u": uid})
 
 
 async def test_updated_at_changes_on_update(db):
@@ -1952,22 +1944,10 @@ async def test_updated_at_changes_on_update(db):
     assert after > before
 ```
 
-Wait: `test_one_draft_per_user` — первая вставка в цикле должна пройти, вторая — упасть. Переписана неуклюже. Финальный вариант функции:
-
-```python
-async def test_one_draft_per_user(db):
-    uid = await _make_user(db.session_factory)
-    async with db.session_factory() as s, s.begin():
-        await s.execute(text("INSERT INTO ticket_drafts (user_id, step, version) VALUES (:u, 'description', 1)"), {"u": uid})
-    with pytest.raises(IntegrityError):
-        async with db.session_factory() as s, s.begin():
-            await s.execute(text("INSERT INTO ticket_drafts (user_id, step, version) VALUES (:u, 'description', 1)"), {"u": uid})
-```
-
 - [ ] **Step 2: Run the tests**
 
 Run: `docker compose --profile test run --rm test pytest tests/integration/test_schema.py -q`
-Expected: 12 passed.
+Expected: 11 passed.
 
 - [ ] **Step 3: Run previously written health test (conftest уже есть)**
 
