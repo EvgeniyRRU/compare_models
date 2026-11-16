@@ -279,7 +279,7 @@ requires-python = ">=3.14"
 dependencies = [
   "fastapi>=0.115",
   "python-telegram-bot>=21",
-  "sqlalchemy>=2.0",
+  "sqlalchemy[asyncio]>=2.0",
   "asyncpg>=0.30",
   "alembic>=1.13",
   "pydantic-settings>=2.3",
@@ -358,6 +358,7 @@ def created_at_column() -> Mapped[datetime]:
 
 def updated_at_column() -> Mapped[datetime]:
     # ЕДИНЫЙ механизм updated_at для всех таблиц (решение по SPEC): onupdate в SQLAlchemy.
+    # Покрывает все ORM и Core-обновления приложения; сырой SQL намеренно не покрывается.
     return mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
@@ -967,6 +968,11 @@ git commit -m "fix: stage 1 lint/type fixes"
 
 # Stage 2 — Модели и миграции
 
+Note (весь stage 2): код ниже каноничен по смыслу, но некоторые строки длиннее 100 символов.
+Перед ruff-гейтом каждого task выполни `docker compose --profile test run --rm test ruff format app tests`;
+если после форматирования `ruff check` всё ещё ругается на E501 (длинные строковые литералы
+форматирование не режет) — разбей строку на неявную конкатенацию, НЕ меняя значения строк.
+
 ### Task 2.1: Модели (все 5 таблиц)
 
 **Files:**
@@ -1094,7 +1100,8 @@ class TicketEvent(Base):
     __tablename__ = "ticket_events"
     __table_args__ = (
         CheckConstraint(
-            "event_type IN ('created', 'taken', 'status_changed', 'declined', 'reassigned', 'reopened')",
+            "event_type IN ('created', 'taken', 'status_changed', "
+            "'declined', 'reassigned', 'reopened')",
             name="ck_ticket_events_type",
         ),
         Index("ix_ticket_events_ticket_id", "ticket_id"),
@@ -1779,9 +1786,12 @@ async def test_updated_at_changes_on_update(db):
     uid = await _make_user(db.session_factory)
     async with db.session_factory() as s:
         before = (await s.execute(text("SELECT updated_at FROM users WHERE id = :i"), {"i": uid})).scalar_one()
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.05)
+    # ORM-обновление: onupdate=func.now() срабатывает только для ORM/Core-обновлений,
+    # сырой SQL его не запускает (см. комментарий в app/models/base.py).
     async with db.session_factory() as s, s.begin():
-        await s.execute(text("UPDATE users SET first_name = 'X' WHERE id = :i"), {"i": uid})
+        user = await s.get(User, uid)
+        user.first_name = "X"
     async with db.session_factory() as s:
         after = (await s.execute(text("SELECT updated_at FROM users WHERE id = :i"), {"i": uid})).scalar_one()
     assert after > before
