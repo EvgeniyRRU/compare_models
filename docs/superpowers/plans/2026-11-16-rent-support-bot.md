@@ -391,7 +391,9 @@ git commit -m "chore: pyproject (ruff/mypy/pytest), models base"
 from app.config import Settings
 
 
-def test_defaults():
+def test_defaults(monkeypatch):
+    # test-сервис compose ставит LOG_FORMAT=pretty в env — уберём, чтобы проверить реальный дефолт
+    monkeypatch.delenv("LOG_FORMAT", raising=False)
     s = Settings(
         bot_token="1:AA",
         dev_chat_id=-100,
