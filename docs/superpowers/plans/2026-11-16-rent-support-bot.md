@@ -1532,6 +1532,7 @@ git commit -m "feat: initial alembic migration (5 tables, invariants as CHECKs)"
 - TRUNCATE всех таблиц между тестами (конкурентные тесты требуют реальных коммитов);
 - RecordingBot вместо сетевых вызовов Telegram.
 """
+
 import asyncio
 import os
 
@@ -1603,14 +1604,13 @@ async def clean_tables(db):
     yield
     from sqlalchemy import text
 
-    async with db.session_factory() as session:
-        async with session.begin():
-            await session.execute(
-                text(
-                    "TRUNCATE users, tickets, ticket_events, ticket_drafts, "
-                    "processed_updates RESTART IDENTITY CASCADE"
-                )
+    async with db.session_factory() as session, session.begin():
+        await session.execute(
+            text(
+                "TRUNCATE users, tickets, ticket_events, ticket_drafts, "
+                "processed_updates RESTART IDENTITY CASCADE"
             )
+        )
 
 
 @pytest.fixture
@@ -1651,6 +1651,7 @@ Note: `test_database` синхронный намеренно — online-пут�
 
 ```python
 """Тестовые двойники: RecordingBot и сборщики апдейтов/initData."""
+
 import hashlib
 import hmac
 import json
@@ -1719,13 +1720,19 @@ class RecordingBot(Bot):
         return True
 
     async def answer_callback_query(
-        self, callback_query_id: str, text: str | None = None, show_alert: bool = False, **kwargs: Any
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool = False,
+        **kwargs: Any,
     ) -> bool:
         self.answered.append({"id": callback_query_id, "text": text, "show_alert": show_alert})
         return True
 
 
-def make_user_dict(user_id: int = 111, username: str | None = None, first_name: str = "Test") -> dict:
+def make_user_dict(
+    user_id: int = 111, username: str | None = None, first_name: str = "Test"
+) -> dict:
     d: dict[str, Any] = {"id": user_id, "is_bot": False, "first_name": first_name}
     if username:
         d["username"] = username
@@ -1794,7 +1801,9 @@ def make_init_data(
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
     secret = hmac.new(token.encode(), b"WebAppData", hashlib.sha256).digest()
     digest = hmac.new(secret, data_check_string.encode(), hashlib.sha256).hexdigest()
-    return "&".join(f"{k}={quote(v, safe='')}" for k, v in sorted(params.items())) + f"&hash={digest}"
+    return (
+        "&".join(f"{k}={quote(v, safe='')}" for k, v in sorted(params.items())) + f"&hash={digest}"
+    )
 ```
 
 - [ ] **Step 3: Verify fakes import and health test runs now**
