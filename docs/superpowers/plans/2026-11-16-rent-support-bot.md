@@ -21,6 +21,7 @@
   - Mypy: `docker compose --profile test run --rm test mypy app`
   - Alembic (dev): `docker compose exec app alembic upgrade head`
   - Полный прогон после каждого этапа: `docker compose --profile test run --rm test pytest -q`
+- Host-файл `.env` подхватывается compose в рантайме (`env_file: .env`, `required: false`) и пробрасывается в контейнер `test` — env контейнера богаче, чем декларируется в compose. Тесты, проверяющие дефолты `Settings`, обязаны `monkeypatch.delenv` соответствующие переменные (например, `LOG_FORMAT`, `BOOTSTRAP_ADMIN_IDS`).
 - Каждый task заканчивается: targeted pytest → ruff → commit (сообщение указано в task).
 - Файлы создаёшь ТОЛЬКО по путям, указанным в task. Не рефакторь то, что не требуется task'ом.
 - **Критичные факты PTB 22.8 (проверены эмпирически, НЕ гуглить заново):**
@@ -392,8 +393,10 @@ from app.config import Settings
 
 
 def test_defaults(monkeypatch):
-    # test-сервис compose ставит LOG_FORMAT=pretty в env — уберём, чтобы проверить реальный дефолт
+    # test-сервис compose ставит LOG_FORMAT=pretty в env, а host .env пробрасывается
+    # через env_file (required: false) — уберём, чтобы проверить реальные дефолты
     monkeypatch.delenv("LOG_FORMAT", raising=False)
+    monkeypatch.delenv("BOOTSTRAP_ADMIN_IDS", raising=False)
     s = Settings(
         bot_token="1:AA",
         dev_chat_id=-100,
@@ -429,12 +432,20 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'app.config'`
 - [ ] **Step 3: Create `app/config.py`**
 
 ```python
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import Field
+from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 REMINDER_PRIORITIES = ("critical", "high", "medium", "low")
+
+
+def _split_csv(value: Any) -> Any:
+    # NoDecode: pydantic-settings передаёт строку из env как есть —
+    # разбираем "111, 222" в ["111", "222"] перед валидацией list[int]
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return value
 
 
 class Settings(BaseSettings):
@@ -446,7 +457,7 @@ class Settings(BaseSettings):
     webhook_url: str = ""
     webhook_secret_token: str = ""
     dev_chat_id: int
-    bootstrap_admin_ids: Annotated[list[int], NoDecode] = []
+    bootstrap_admin_ids: Annotated[list[int], NoDecode, BeforeValidator(_split_csv)] = []
     mini_app_url: str = ""
 
     # Database
