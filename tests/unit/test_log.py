@@ -7,8 +7,10 @@ from app.log import configure_logging, get_logger
 
 
 def test_json_logs_with_context(capsys):
-    configure_logging("INFO", "json")
+    # Паттерн всех модулей: логгер создаётся при import — ДО configure_logging().
+    # JSON-вывод возможен только благодаря ленивому резолвингу цепочки процессоров.
     logger = get_logger("test.component")
+    configure_logging("INFO", "json")
     with structlog.contextvars.bound_contextvars(update_id=42):
         logger.info("hello", extra_key="v")
     out = capsys.readouterr().out
