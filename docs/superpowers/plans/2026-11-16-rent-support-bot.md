@@ -781,12 +781,14 @@ router = APIRouter()
 
 
 @router.get("/health/live")
-async def live() -> dict:
+async def live() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/health/ready")
-async def ready(request: Request) -> JSONResponse | dict:
+# response_model=None: FastAPI 0.163.1 падает при импорте (FastAPIError),
+# если return-аннотация Union[Response, dict] — проверено эмпирически
+@router.get("/health/ready", response_model=None)
+async def ready(request: Request) -> JSONResponse | dict[str, str]:
     try:
         async with request.app.state.db.session_factory() as session:
             await session.execute(text("SELECT 1"))
@@ -798,10 +800,10 @@ async def ready(request: Request) -> JSONResponse | dict:
 - [ ] **Step 3: Create `app/main.py`** (v1 — health; расширяется в Stage 5/7/8)
 
 ```python
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 
 from app import log
 from app.api.health import router as health_router
@@ -810,7 +812,7 @@ from app.db import make_db
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     log.configure_logging(settings.log_level, settings.log_format)
     settings.validate_modes()
@@ -842,7 +844,7 @@ def get_settings() -> Settings:
 
 (Импорт `lru_cache` — в блок импортов наверху файла.)
 
-Note: `StaticFiles` импортирован, но смонтируется в Stage 7 — пока устрани неиспользуемый импорт, удалив его (mypy strict не ругается, но ruff F401 — да). Убери `from fastapi.staticfiles import StaticFiles` из v1.
+Note: `StaticFiles` смонтируется только в Stage 7 — в v1 его импорта нет (ruff F401).
 
 - [ ] **Step 4: Verify** (запустится только после Task 2.3, когда появятся конфтесты)
 
@@ -5203,9 +5205,9 @@ async def webhook(request: Request):
 - [ ] **Step 2: Replace `app/main.py` (v2)**
 
 ```python
-from contextlib import asynccontextmanager
-
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -5219,7 +5221,7 @@ from app.workers import run_draft_ttl_loop, run_post_sync_loop, run_processed_up
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     log.configure_logging(settings.log_level, settings.log_format)
     settings.validate_modes()
