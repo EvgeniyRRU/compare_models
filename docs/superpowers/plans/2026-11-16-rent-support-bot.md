@@ -926,7 +926,8 @@ from app.models.base import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: in-process (conftest pytest) — не глушим существующие логгеры
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # sqlalchemy.url в alembic.ini намеренно пуст:
 # - dev (compose) передаёт DATABASE_URL env-переменной;
@@ -1041,10 +1042,12 @@ git commit -m "chore: async alembic env (dev/test images get alembic files)"
 Run: `docker compose --profile test run --rm test pytest tests/unit -q`
 Expected: all passed (config + log — 8 тестов).
 
-Note: `tests/integration/test_health.py` (Task 1.6) до Task 2.3 не коллектируется
-(`tests/conftest.py` ещё не существует — pytest падает на collection), поэтому
-stage-1 прогон ограничен `tests/unit`. Проверка health-тестов — Step 4 Task 1.6,
-который выполняется после Task 2.3.
+Note: `tests/integration/test_health.py` (Task 1.6) коллектируется нормально (зависимость
+от `tests/conftest.py` из Task 2.3 — только через имена фиксюр `db`/`settings`, pytest
+разрешает их лениво), но полный прогон до Task 2.3 даёт `8 passed, 2 errors`
+(setup-ошибки: фиксьюры ещё не существуют). Поэтому stage-1 прогон намеренно ограничен
+`tests/unit`. Проверка health-тестов — Step 4 Task 1.6, который выполняется после Task 2.3.
+(Проверено в контейнере: `pytest --co -q` = 10 collected; `pytest -q` = 8 passed, 2 errors.)
 
 Run: `docker compose --profile test run --rm test ruff check app tests && docker compose --profile test run --rm test mypy app`
 Expected: no errors. При ошибках mypy — исправить.
