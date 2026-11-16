@@ -1147,12 +1147,12 @@ class Ticket(Base):
             name="ck_tickets_new_unassigned",
         ),
         CheckConstraint(
-            "status IN ('in_progress', 'waiting_info') OR assignee_id IS NULL",
-            name="ck_tickets_assignee_only_active",
+            "status NOT IN ('in_progress', 'waiting_info') OR assignee_id IS NOT NULL",
+            name="ck_tickets_active_requires_assignee",
         ),
         CheckConstraint(
-            "status IN ('in_progress', 'waiting_info') OR taken_at IS NULL",
-            name="ck_tickets_taken_at_only_active",
+            "status NOT IN ('in_progress', 'waiting_info') OR taken_at IS NOT NULL",
+            name="ck_tickets_active_requires_taken_at",
         ),
         CheckConstraint(
             "status IN ('resolved', 'rejected', 'duplicate') OR closed_at IS NULL",
@@ -1382,8 +1382,8 @@ def upgrade() -> None:
         sa.CheckConstraint("version >= 1", name="ck_tickets_version"),
         sa.CheckConstraint("post_synced_version >= 0", name="ck_tickets_post_synced_version"),
         sa.CheckConstraint("status <> 'new' OR (assignee_id IS NULL AND taken_at IS NULL)", name="ck_tickets_new_unassigned"),
-        sa.CheckConstraint("status IN ('in_progress', 'waiting_info') OR assignee_id IS NULL", name="ck_tickets_assignee_only_active"),
-        sa.CheckConstraint("status IN ('in_progress', 'waiting_info') OR taken_at IS NULL", name="ck_tickets_taken_at_only_active"),
+        sa.CheckConstraint("status NOT IN ('in_progress', 'waiting_info') OR assignee_id IS NOT NULL", name="ck_tickets_active_requires_assignee"),
+        sa.CheckConstraint("status NOT IN ('in_progress', 'waiting_info') OR taken_at IS NOT NULL", name="ck_tickets_active_requires_taken_at"),
         sa.CheckConstraint("status IN ('resolved', 'rejected', 'duplicate') OR closed_at IS NULL", name="ck_tickets_closed_at_only_final"),
         sa.CheckConstraint("status NOT IN ('resolved', 'rejected', 'duplicate') OR closed_at IS NOT NULL", name="ck_tickets_closed_at_required_final"),
     )
@@ -1861,9 +1861,8 @@ async def test_new_cannot_have_assignee(db):
 
 
 async def test_in_progress_requires_assignee(db):
-    uid = await _make_user(db.session_factory, telegram_id=7)
     with pytest.raises(IntegrityError):
-        await _insert_ticket(db.session_factory, status="in_progress", taken_at="2026-01-01T00:00:00Z", assignee_id=uid)
+        await _insert_ticket(db.session_factory, status="in_progress", taken_at="2026-01-01T00:00:00Z")
 
 
 async def test_in_progress_requires_taken_at(db):
