@@ -10,6 +10,8 @@ async def live() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# response_model=None: FastAPI 0.163.1 падает при импорте (FastAPIError),
+# если return-аннотация Union[Response, dict] — проверено эмпирически
 @router.get("/health/ready", response_model=None)
 async def ready(request: Request) -> JSONResponse | dict[str, str]:
     try:
