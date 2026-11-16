@@ -10,6 +10,8 @@ FROM base AS deps
 COPY pyproject.toml README.md ./
 COPY app ./app
 COPY tests ./tests
+COPY alembic.ini ./
+COPY migrations ./migrations
 RUN pip install --no-cache-dir -e . --group dev
 RUN chown -R app:app /srv/app
 
