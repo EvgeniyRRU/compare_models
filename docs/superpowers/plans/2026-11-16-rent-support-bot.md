@@ -907,10 +907,13 @@ format = %(levelname)-5.5s [%(name)s] %(message)s
 datefmt = %H:%M:%S
 ```
 
+Note: `sqlalchemy.url` пуст намеренно — `migrations/env.py` при пустом URL подставляет env-переменную `DATABASE_URL` (compose передаёт её в dev- и test-контейнер; в тестовом это `rent_bot_test`).
+
 - [ ] **Step 2: Create `migrations/env.py`**
 
 ```python
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -924,6 +927,12 @@ config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# sqlalchemy.url в alembic.ini намеренно пуст:
+# - dev (compose) передаёт DATABASE_URL env-переменной;
+# - тесты переопределяют URL в conftest через set_main_option (Task 2.3).
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 
 target_metadata = Base.metadata
 
@@ -1013,7 +1022,9 @@ Expected: сборка OK (stage `test`)
 
 - [ ] **Step 5: Verify alembic boots** (миграций ещё нет — upgrade head завершится без действий)
 
-Run: `docker compose --profile test run --rm test sh -c "alembic upgrade head && echo ALEMBIC_OK"`
+Важно: тестовая БД `rent_bot_test` ещё НЕ существует (создаёт её conftest в Task 2.3) — поэтому проверка идёт против существующей `rent_bot`. Переопределение `DATABASE_URL` shell-присваиванием дополнительно доказывает, что fallback в env.py из env-переменной работает.
+
+Run: `docker compose --profile test run --rm test sh -c "DATABASE_URL=postgresql+asyncpg://bot:bot@postgres:5432/rent_bot alembic upgrade head && echo ALEMBIC_OK"`
 Expected: `ALEMBIC_OK` (или `alembic` не найден в PATH test-образа — в этом случае: `python -m alembic upgrade head`).
 
 - [ ] **Step 6: Commit**
