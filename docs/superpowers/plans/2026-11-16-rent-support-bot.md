@@ -1451,28 +1451,65 @@ def downgrade() -> None:
 
 - [ ] **Step 2: Run migration on a scratch database**
 
-Run:
-```bash
-docker compose run --rm postgres psql -U bot -c "DROP DATABASE IF EXISTS rent_bot_migtest; CREATE DATABASE rent_bot_migtest;"
-docker compose --profile test run --rm test sh -c "DATABASE_URL=postgresql+asyncpg://bot:bot@postgres:5432/rent_bot_migtest python -m alembic -x 'url=postgresql+asyncpg://bot:bot@postgres:5432/rent_bot_migtest' upgrade head 2>/dev/null || python -m alembic upgrade head --cfg <(printf '[alembic]\nscript_location = migrations\nsqlalchemy.url = postgresql+asyncpg://bot:bot@postgres:5432/rent_bot_migtest\n')"
-```
-Слишком сложно — сделай проще: `python -m alembic` берёт URL из `alembic.ini`. Для проверки запусти с переопределением:
+Scratch-БД создаём из test-контейнера через asyncpg: one-off `postgres`-контейнер от
+`compose run` не имеет запущенного сервера (psql туда не подключится), а `compose exec`
+работает только пока сервис postgres запущен. URL для alembic передаём env-переменной
+`DATABASE_URL` — `migrations/env.py` подставляет её, когда `sqlalchemy.url` пуст.
 
 Run:
 ```bash
-docker compose --profile test run --rm -e ALM_URL=postgresql+asyncpg://bot:bot@postgres:5432/rent_bot_migtest test sh -c "sed 's|^sqlalchemy.url =.*|sqlalchemy.url = '"$ALM_URL"'|' alembic.ini > /tmp/alm.ini && python -m alembic -c /tmp/alm.ini upgrade head && echo MIG_OK"
+docker compose --profile test run --rm test python -c "
+import asyncio, asyncpg
+async def m():
+    c = await asyncpg.connect('postgresql://bot:bot@postgres:5432/postgres')
+    await c.execute('DROP DATABASE IF EXISTS rent_bot_migtest')
+    await c.execute('CREATE DATABASE rent_bot_migtest')
+    print('DB_OK')
+    await c.close()
+asyncio.run(m())
+"
+```
+Expected: `DB_OK`.
+
+Run:
+```bash
+docker compose --profile test run --rm -e DATABASE_URL=postgresql+asyncpg://bot:bot@postgres:5432/rent_bot_migtest test sh -c "python -m alembic upgrade head && echo MIG_OK"
 ```
 Expected: `MIG_OK` (таблицы созданы).
 
-Проверь: `docker compose exec postgres psql -U bot -d rent_bot_migtest -c "\dt"` — 5 таблиц.
+Проверь (5 таблиц + alembic_version = 6 в public):
+```bash
+docker compose --profile test run --rm test python -c "
+import asyncio, asyncpg
+async def m():
+    c = await asyncpg.connect('postgresql://bot:bot@postgres:5432/rent_bot_migtest')
+    print([r[0] for r in await c.fetch(\"SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY 1\")])
+    await c.close()
+asyncio.run(m())
+"
+```
+Expected: `['alembic_version', 'processed_updates', 'ticket_drafts', 'ticket_events', 'tickets', 'users']`
 
-- [ ] **Step 3: Verify metadata match (alembic autogenerate пустой diff)**
+- [ ] **Step 3: Verify metadata match (alembic check — пустой diff)**
 
 Run:
 ```bash
-docker compose --profile test run --rm -e ALM_URL=postgresql+asyncpg://bot:bot@postgres:5432/rent_bot_migtest test sh -c "sed 's|^sqlalchemy.url =.*|sqlalchemy.url = '"$ALM_URL"'|' alembic.ini > /tmp/alm.ini && python -m alembic -c /tmp/alm.ini check && echo NO_DRIFT"
+docker compose --profile test run --rm -e DATABASE_URL=postgresql+asyncpg://bot:bot@postgres:5432/rent_bot_migtest test sh -c "python -m alembic check && echo NO_DRIFT"
 ```
-Expected: `NO_DRIFT` (метаданные моделей == схема БД).
+Expected: `NO_DRIFT` (метаданные моделей == схема БД). Если drift — сверь `migrations/versions/0001_initial.py` с моделями (Task 2.1) и поправ миграцию.
+
+Убери scratch-БД:
+```bash
+docker compose --profile test run --rm test python -c "
+import asyncio, asyncpg
+async def m():
+    c = await asyncpg.connect('postgresql://bot:bot@postgres:5432/postgres')
+    await c.execute('DROP DATABASE IF EXISTS rent_bot_migtest')
+    await c.close()
+    print('DROPPED_OK')
+asyncio.run(m())
+"
+```
 
 - [ ] **Step 4: Commit**
 
