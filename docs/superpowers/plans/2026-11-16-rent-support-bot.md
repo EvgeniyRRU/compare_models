@@ -673,7 +673,7 @@ from sqlalchemy.pool import NullPool
 
 
 class DB:
-    """И два движка:
+    """Два движка:
     - engine: основной пул для бизнес-транзакций;
     - lock_engine: NullPool — выделенные ФИЗИЧЕСКИЕ соединения для session-level
       advisory lock (после close() соединение закрывается, а не возвращается в пул;
