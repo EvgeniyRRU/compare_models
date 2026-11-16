@@ -1,3 +1,5 @@
+import pytest
+
 from app.config import Settings
 
 
@@ -31,3 +33,53 @@ def test_bootstrap_admin_ids_from_env(monkeypatch):
         _env_file=None,
     )
     assert s.bootstrap_admin_ids == [111, 222]
+
+
+def test_validate_modes_rejects_unknown_mode():
+    s = Settings(
+        bot_token="x", dev_chat_id=1, database_url="d", _env_file=None, bot_mode="webhooks"
+    )
+    with pytest.raises(ValueError, match="invalid BOT_MODE"):
+        s.validate_modes()
+
+
+def test_validate_modes_webhook_requires_url():
+    s = Settings(
+        bot_token="x",
+        dev_chat_id=1,
+        database_url="d",
+        _env_file=None,
+        bot_mode="webhook",
+        webhook_url="",
+    )
+    with pytest.raises(ValueError, match="WEBHOOK_URL required"):
+        s.validate_modes()
+
+
+def test_validate_modes_webhook_requires_secret():
+    s = Settings(
+        bot_token="x",
+        dev_chat_id=1,
+        database_url="d",
+        _env_file=None,
+        bot_mode="webhook",
+        webhook_url="https://example.com/hook",
+        webhook_secret_token="",
+    )
+    with pytest.raises(ValueError, match="WEBHOOK_SECRET_TOKEN required"):
+        s.validate_modes()
+
+
+def test_validate_modes_accepts_valid_configs():
+    polling = Settings(bot_token="x", dev_chat_id=1, database_url="d", _env_file=None)
+    polling.validate_modes()
+    webhook = Settings(
+        bot_token="x",
+        dev_chat_id=1,
+        database_url="d",
+        _env_file=None,
+        bot_mode="webhook",
+        webhook_url="https://example.com/hook",
+        webhook_secret_token="s",
+    )
+    webhook.validate_modes()
