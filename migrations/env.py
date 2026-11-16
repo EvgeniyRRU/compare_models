@@ -12,7 +12,8 @@ from app.models.base import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: in-process (conftest pytest) — не глушим существующие логгеры
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # sqlalchemy.url в alembic.ini намеренно пуст:
 # - dev (compose) передаёт DATABASE_URL env-переменной;
