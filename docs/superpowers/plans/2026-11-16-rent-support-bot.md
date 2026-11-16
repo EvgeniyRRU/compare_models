@@ -129,7 +129,7 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 COPY tests ./tests
 RUN pip install --no-cache-dir -e . --group dev
-RUN chown app:app /srv/app
+RUN chown -R app:app /srv/app
 
 FROM deps AS dev
 USER app
@@ -437,8 +437,12 @@ def test_validate_modes_rejects_unknown_mode():
 
 def test_validate_modes_webhook_requires_url():
     s = Settings(
-        bot_token="x", dev_chat_id=1, database_url="d", _env_file=None,
-        bot_mode="webhook", webhook_url="",
+        bot_token="x",
+        dev_chat_id=1,
+        database_url="d",
+        _env_file=None,
+        bot_mode="webhook",
+        webhook_url="",
     )
     with pytest.raises(ValueError, match="WEBHOOK_URL required"):
         s.validate_modes()
@@ -446,8 +450,13 @@ def test_validate_modes_webhook_requires_url():
 
 def test_validate_modes_webhook_requires_secret():
     s = Settings(
-        bot_token="x", dev_chat_id=1, database_url="d", _env_file=None,
-        bot_mode="webhook", webhook_url="https://example.com/hook", webhook_secret_token="",
+        bot_token="x",
+        dev_chat_id=1,
+        database_url="d",
+        _env_file=None,
+        bot_mode="webhook",
+        webhook_url="https://example.com/hook",
+        webhook_secret_token="",
     )
     with pytest.raises(ValueError, match="WEBHOOK_SECRET_TOKEN required"):
         s.validate_modes()
@@ -457,8 +466,12 @@ def test_validate_modes_accepts_valid_configs():
     polling = Settings(bot_token="x", dev_chat_id=1, database_url="d", _env_file=None)
     polling.validate_modes()
     webhook = Settings(
-        bot_token="x", dev_chat_id=1, database_url="d", _env_file=None,
-        bot_mode="webhook", webhook_url="https://example.com/hook",
+        bot_token="x",
+        dev_chat_id=1,
+        database_url="d",
+        _env_file=None,
+        bot_mode="webhook",
+        webhook_url="https://example.com/hook",
         webhook_secret_token="s",
     )
     webhook.validate_modes()
