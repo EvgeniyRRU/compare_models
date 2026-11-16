@@ -11,7 +11,7 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 COPY tests ./tests
 RUN pip install --no-cache-dir -e . --group dev
-RUN chown app:app /srv/app
+RUN chown -R app:app /srv/app
 
 FROM deps AS dev
 USER app
