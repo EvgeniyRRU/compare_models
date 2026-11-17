@@ -3842,14 +3842,15 @@ git commit -m "feat: update deduplication (processed_updates, ON CONFLICT DO NOT
 PTB 22.8: `process_update(update)` — один аргумент. Ошибки хендлеров не
 выходят за пределы process_update (уходит в error handler).
 """
+
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import sentry_sdk
 from structlog.contextvars import bind_contextvars, clear_contextvars
-from telegram import Command, Update
+from telegram import BotCommand, Update
 from telegram.ext import Application, ApplicationBuilder
 
 from app.config import Settings
@@ -3862,13 +3863,13 @@ from app.services.users import upsert_user
 log = get_logger("bot.application")
 
 BOT_COMMANDS = [
-    Command("new", "Создать обращение"),
-    Command("cancel", "Отменить форму"),
-    Command("help", "Справка"),
+    BotCommand("new", "Создать обращение"),
+    BotCommand("cancel", "Отменить форму"),
+    BotCommand("help", "Справка"),
 ]
 
 
-async def _post_init(app: "AppApplication") -> None:
+async def _post_init(app: Any) -> None:
     await app.bot.set_my_commands(BOT_COMMANDS)
     if app.settings is not None and app.settings.bot_mode == "webhook":
         await app.bot.set_webhook(
@@ -3881,15 +3882,18 @@ async def _on_error(bot: Any, context: Any) -> None:
     update_id = update.update_id if update is not None else None
     user_id = update.effective_user.id if update is not None and update.effective_user else None
     log.error(
-        "telegram update error", exc_info=context.error, update_id=update_id, telegram_user_id=user_id
+        "telegram update error",
+        exc_info=context.error,
+        update_id=update_id,
+        telegram_user_id=user_id,
     )
     errors_total.labels(component="telegram").inc()
     sentry_sdk.capture_exception(context.error)
 
 
-class AppApplication(Application):
+class AppApplication(Application[Any, Any, Any, Any, Any, Any]):
     @classmethod
-    def builder(cls) -> ApplicationBuilder:
+    def builder(cls) -> ApplicationBuilder[Any, Any, Any, Any, Any, Any]:
         return ApplicationBuilder().application_class(cls)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -3936,16 +3940,13 @@ class AppApplication(Application):
 
 def build_application(settings: Settings, db: DB, bot: Any = None) -> AppApplication:
     builder = AppApplication.builder()
-    if bot is not None:
-        builder = builder.bot(bot)
-    else:
-        builder = builder.token(settings.bot_token)
-    app = builder.post_init(_post_init).build()
+    builder = builder.bot(bot) if bot is not None else builder.token(settings.bot_token)
+    app = cast(AppApplication, builder.post_init(_post_init).build())
     app.settings = settings
     app.db = db
-    from app.bot.handlers.callbacks import register_post_callback_handlers  # noqa: PLC0415
-    from app.bot.handlers.commands import register_command_handlers  # noqa: PLC0415
-    from app.bot.handlers.draft_form import register_draft_form_handlers  # noqa: PLC0415
+    from app.bot.handlers.callbacks import register_post_callback_handlers  # type: ignore  # noqa: E501
+    from app.bot.handlers.commands import register_command_handlers  # type: ignore  # noqa: E501
+    from app.bot.handlers.draft_form import register_draft_form_handlers  # type: ignore  # noqa: E501
 
     register_command_handlers(app)
     register_draft_form_handlers(app)
