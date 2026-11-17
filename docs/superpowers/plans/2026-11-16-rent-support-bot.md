@@ -3981,6 +3981,7 @@ git commit -m "feat: AppApplication with dedup, user upsert, contextvars, error 
 
 ```python
 """Форма создания обращения: шаги, вопросы, callback_data (<= 64 байт)."""
+
 from __future__ import annotations
 
 import uuid as _uuid
@@ -4060,7 +4061,6 @@ def parse_draft_callback(data: str) -> tuple[str, str, int, str | None] | None:
     except ValueError:
         return None
     return kind, uid, version_int, extra
-```
 
 - [ ] **Step 2: Write `tests/unit/test_form.py`**
 
@@ -4073,8 +4073,13 @@ from app.bot import form
 
 def _draft(version=1, step="description", **kw):
     base = dict(
-        id=uuid_lib.uuid4(), version=version, step=step,
-        description="desc", priority="high", request_id="r1", tenant_id=None,
+        id=uuid_lib.uuid4(),
+        version=version,
+        step=step,
+        description="desc",
+        priority="high",
+        request_id="r1",
+        tenant_id=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -4082,7 +4087,14 @@ def _draft(version=1, step="description", **kw):
 
 def test_callback_within_64_bytes():
     d = _draft(version=1234)
-    for kind, extra in (("send", None), ("canx", None), ("cont", None), ("reset", None), ("skip", None), ("prio", "c")):
+    for kind, extra in (
+        ("send", None),
+        ("canx", None),
+        ("cont", None),
+        ("reset", None),
+        ("skip", None),
+        ("prio", "c"),
+    ):
         data = form.cb(kind, d, extra) if extra else form.cb(kind, d)
         assert len(data.encode()) <= 64, kind
 
