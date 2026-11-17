@@ -5455,6 +5455,7 @@ git commit -m "feat: post callback buttons (take/status/decline) with alerts and
 ```python
 """Webhook-эндпоинт (SPEC «FastAPI»): X-Telegram-Bot-Api-Secret-Token,
 синхронная обработка внутри запроса, 200 даже при ошибке обработки."""
+
 from __future__ import annotations
 
 import asyncio
@@ -5474,8 +5475,8 @@ log = get_logger("bot.webhook")
 router = APIRouter()
 
 
-@router.post("/telegram/webhook")
-async def webhook(request: Request):
+@router.post("/telegram/webhook", response_model=None)
+async def webhook(request: Request) -> JSONResponse | dict[str, bool]:
     settings = request.app.state.settings
     if settings.bot_mode != "webhook":
         return JSONResponse({"error": "webhook disabled"}, status_code=404)
@@ -5617,7 +5618,7 @@ from fastapi import FastAPI
 from app.bot.webhook import router as webhook_router
 from app.config import Settings
 from app.services.updates import register_update
-from tests.conftest import TEST_DB_URL, FAKE_TOKEN
+from tests.conftest import FAKE_TOKEN, TEST_DB_URL
 from tests.fakes import make_update
 
 SECRET = "s3cret"
