@@ -4413,8 +4413,9 @@ async def _make_user(db, tg: int = 1) -> int:
 
 
 async def _draft(db, user_id):
-    from app.models import Draft
     from sqlalchemy import select
+
+    from app.models import Draft
 
     async with db.session_factory() as s:
         return (await s.execute(select(Draft).where(Draft.user_id == user_id))).scalar_one_or_none()
@@ -4550,9 +4551,9 @@ async def test_late_question_does_not_overwrite_prompt(db):
     async with db.session_factory() as s, s.begin():
         d, _ = await drafts.start_draft(s, uid)
     await drafts.save_prompt_message_id(db.session_factory, d.id, 1, "description", 100)
-    r = await _fill_description(db, uid, d.id, 1, "описание")          # v2 priority
+    r = await _fill_description(db, uid, d.id, 1, "описание")  # v2 priority
     async with db.session_factory() as s, s.begin():
-        r = await drafts.answer_choice(s, None, uid, d.id, r.version, "prio", "high")  # v3 request_id
+        r = await drafts.answer_choice(s, None, uid, d.id, r.version, "prio", "high")  # v3
     await drafts.save_prompt_message_id(db.session_factory, d.id, r.version, "request_id", 102)
     # «запоздалый» вопрос description (v1) — не должен перезаписать
     await drafts.save_prompt_message_id(db.session_factory, d.id, 1, "description", 150)
@@ -4583,14 +4584,20 @@ async def test_send_creates_ticket_and_deletes_draft(db, settings):
         row = (
             await s.execute(
                 text(
-                    "SELECT description, priority, request_id, tenant_id, status, version, author_id "
+                    "SELECT description, priority, request_id, tenant_id, "
+                    "status, version, author_id "
                     "FROM tickets WHERE id = :i"
                 ),
                 {"i": r.ticket_id},
             )
         ).one()
         n_drafts = (await s.execute(text("SELECT count(*) FROM ticket_drafts"))).scalar_one()
-        ev = (await s.execute(text("SELECT event_type FROM ticket_events WHERE ticket_id = :i"), {"i": r.ticket_id})).scalar_one()
+        ev = (
+            await s.execute(
+                text("SELECT event_type FROM ticket_events WHERE ticket_id = :i"),
+                {"i": r.ticket_id},
+            )
+        ).scalar_one()
     assert row == ("описание", "critical", "R-42", None, "new", 1, uid)
     assert n_drafts == 0 and ev == "created"
     # повторное «Отправить» — ничего не создаст
