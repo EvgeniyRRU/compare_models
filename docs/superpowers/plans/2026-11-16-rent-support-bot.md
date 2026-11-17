@@ -5232,13 +5232,19 @@ git commit -m "feat: draft form handlers (/new, text answers, buttons, stale han
 
 ```python
 """Кнопки постов в чате разработчиков: callback_data t:<action>:<id>:<version>."""
+
 from __future__ import annotations
 
 import re
+from typing import cast
 
+from sqlalchemy import select
+from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
+from app.bot.application import AppApplication
 from app.log import get_logger
+from app.models import User
 from app.services import tickets as tickets_svc
 from app.services.errors import AlreadyTakenError, NotFoundError, PermissionDenied, StaleTicketError
 
@@ -5257,20 +5263,22 @@ ACTION_TO_TRANSITION = {
 PATTERN = re.compile(r"^t:(take|wai|pro|res|rej|dup|dec):(\d+):(\d+)$")
 
 
-async def resync_post(app, ticket_id: int) -> None:
+async def resync_post(app: AppApplication, ticket_id: int) -> None:
     """Пересинхронизация поста после бизнес-изменения или конфликта (SPEC)."""
     from app.services.post_sync import sync_ticket_post
 
+    assert app.settings is not None and app.db is not None
     try:
         await sync_ticket_post(app.settings, app.db, app.bot, ticket_id)
     except Exception:
         log.exception("post resync failed; background sync will catch up", ticket_id=ticket_id)
 
 
-async def on_post_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
-    app = context.application
-    cq = context.callback_query
-    user = context.effective_user
+async def on_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    app = cast(AppApplication, context.application)
+    assert app.settings is not None and app.db is not None
+    cq = update.callback_query
+    user = update.effective_user
     assert cq is not None and user is not None
     m = PATTERN.match(cq.data or "")
     if not m:
@@ -5280,12 +5288,20 @@ async def on_post_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     db = app.db
     try:
         async with db.session_factory() as s, s.begin():
+            user_pk = (
+                await s.execute(select(User.id).where(User.telegram_id == user.id))
+            ).scalar_one()
             ticket = await tickets_svc.load_ticket(s, ticket_id)
             if action == "take":
-                await tickets_svc.take_ticket(s, app.settings, user.id, ticket, expected_version)
+                await tickets_svc.take_ticket(s, app.settings, user_pk, ticket, expected_version)
             else:
                 await tickets_svc.apply_transition(
-                    s, app.settings, user.id, ticket, expected_version, ACTION_TO_TRANSITION[action]
+                    s,
+                    app.settings,
+                    user_pk,
+                    ticket,
+                    expected_version,
+                    ACTION_TO_TRANSITION[action],
                 )
     except NotFoundError:
         await cq.answer(text="Обращение не найдено.", show_alert=True)
@@ -5305,9 +5321,8 @@ async def on_post_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     await resync_post(app, ticket_id)
 
 
-def register_post_callback_handlers(app) -> None:
+def register_post_callback_handlers(app: AppApplication) -> None:
     app.add_handler(CallbackQueryHandler(on_post_callback, pattern=PATTERN))
-```
 
 - [ ] **Step 2: Write `tests/integration/test_post_callbacks.py`**
 
@@ -5331,7 +5346,9 @@ async def _ticket(db, settings, author_tg: int = 111) -> int:
 
     async with db.session_factory() as s, s.begin():
         u = await usvc.upsert_user(s, telegram_id=author_tg, first_name="A")
-        t = await tsvc.create_ticket(s, settings, u.id, description="d", priority="high", request_id="r")
+        t = await tsvc.create_ticket(
+            s, settings, u.id, description="d", priority="high", request_id="r"
+        )
     return t.id
 
 
@@ -5354,7 +5371,12 @@ async def test_take_via_button(tg_app, bot, db, settings):
     dev_id = await _dev_id(tg_app, db)
     await _u(tg_app, 100, 222, data=_t("take", tid, 1))
     async with db.session_factory() as s:
-        row = (await s.execute(text("SELECT status, assignee_id FROM tickets WHERE id = :i"), {"i": tid})).one()
+        row = (
+            await s.execute(
+                text("SELECT status, assignee_id FROM tickets WHERE id = :i"),
+                {"i": tid},
+            )
+        ).one()
     assert row == ("in_progress", dev_id)
     dev_posts = [m for m in bot.sent if m["chat_id"] == settings.dev_chat_id]
     assert len(dev_posts) == 1
@@ -5379,27 +5401,35 @@ async def test_permission_denied(tg_app, bot, db, settings):
     await _u(tg_app, 104, 333, data=_t("res", tid, 2))
     assert bot.answered[-1]["show_alert"] is True
     async with db.session_factory() as s:
-        status = (await s.execute(text("SELECT status FROM tickets WHERE id = :i"), {"i": tid})).scalar_one()
+        status = (
+            await s.execute(text("SELECT status FROM tickets WHERE id = :i"), {"i": tid})
+        ).scalar_one()
     assert status == "in_progress"
 
 
 async def test_status_cycle_via_buttons(tg_app, bot, db, settings):
     tid = await _ticket(db, settings)
     await _dev_id(tg_app, db)
-    for v, (action, final) in enumerate(
-        (("take", "in_progress"), ("wai", "waiting_info"), ("pro", "in_progress"), ("res", "resolved")), start=1
+    for v, (action, _) in enumerate(
+        (
+            ("take", "in_progress"),
+            ("wai", "waiting_info"),
+            ("pro", "in_progress"),
+            ("res", "resolved"),
+        ),
+        start=1,
     ):
         await _u(tg_app, 200 + v, 222, data=_t(action, tid, v))
     async with db.session_factory() as s:
         row = (
             await s.execute(
-                text("SELECT status, closed_at IS NOT NULL, version FROM tickets WHERE id = :i"), {"i": tid}
+                text("SELECT status, closed_at IS NOT NULL, version FROM tickets WHERE id = :i"),
+                {"i": tid},
             )
         ).one()
     assert row == ("resolved", True, 5)
     last_post = bot.edited[-1]["text"] if bot.edited else bot.sent[-1]["text"]
     assert "решено" in last_post
-```
 
 - [ ] **Step 3: Run tests**
 
