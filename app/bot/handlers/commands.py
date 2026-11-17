@@ -75,7 +75,8 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     assert user is not None and chat_id is not None
     assert app.db is not None
     async with app.db.session_factory() as s, s.begin():
-        removed = await drafts.delete_draft(s, user.id)
+        user_pk = (await s.execute(select(User.id).where(User.telegram_id == user.id))).scalar_one()
+        removed = await drafts.delete_draft(s, user_pk)
     await context.bot.send_message(chat_id, "Форма отменена." if removed else "Нет активной формы.")
 
 
