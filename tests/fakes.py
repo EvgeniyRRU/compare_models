@@ -111,6 +111,13 @@ def make_update(
                 "from": user,
                 "chat_instance": f"ci{update_id}",
                 "data": data,
+                "message": {
+                    "message_id": message_id,
+                    "date": 1700000000,
+                    "chat": {"id": user_id, "type": "private"},
+                    "from": user,
+                    "text": "question",
+                },
             },
         }
     message: dict[str, Any] = {
