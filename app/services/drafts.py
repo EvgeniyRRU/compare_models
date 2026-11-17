@@ -12,15 +12,15 @@ from __future__ import annotations
 
 import uuid as _uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.models import Draft, Ticket, TicketEvent, User
-from app.services.errors import DraftValidationError, StaleDraftError, StaleAnswerError
+from app.models import Draft, Ticket, TicketEvent
+from app.services.errors import DraftValidationError, StaleAnswerError, StaleDraftError
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class DraftResult:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def get_draft(session: AsyncSession, user_id: int) -> Draft | None:
@@ -119,7 +119,9 @@ async def answer_choice(
     choice: str,
     value: str | None = None,
 ) -> DraftResult:
-    """Кнопка формы: prio / skip / send / canx. Чужой id или устаревшая version → StaleDraftError."""
+    """Кнопка формы: prio / skip / send / canx.
+
+    Чужой id или устаревшая version → StaleDraftError."""
     draft = (
         await session.execute(
             select(Draft).where(Draft.id == draft_id, Draft.user_id == user_id).with_for_update()
