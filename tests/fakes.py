@@ -53,7 +53,9 @@ class RecordingBot(Bot):
             raise exc
         if self.send_hook is not None:
             await self.send_hook()
-        self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
+        self.sent.append(
+            {"chat_id": chat_id, "message_id": len(self.sent) + 1, "text": text, **kwargs}
+        )
         return Message(
             message_id=len(self.sent),
             date=int(time.time()),
