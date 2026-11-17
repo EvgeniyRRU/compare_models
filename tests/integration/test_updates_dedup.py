@@ -24,7 +24,9 @@ async def test_error_does_not_rollback_dedup(db):
 async def test_purge_old_updates(db):
     await register_update(db, 300)
     async with db.session_factory() as s, s.begin():
-        await s.execute(text("UPDATE processed_updates SET processed_at = now() - interval '49 hours'"))
+        await s.execute(
+            text("UPDATE processed_updates SET processed_at = now() - interval '49 hours'")
+        )
     await purge_processed_updates(db)
     async with db.session_factory() as s:
         n = (await s.execute(text("SELECT count(*) FROM processed_updates"))).scalar_one()
