@@ -1767,6 +1767,13 @@ def make_update(
                 "from": user,
                 "chat_instance": f"ci{update_id}",
                 "data": data,
+                "message": {
+                    "message_id": message_id,
+                    "date": 1700000000,
+                    "chat": {"id": user_id, "type": "private"},
+                    "from": user,
+                    "text": "question",
+                },
             },
         }
     message: dict[str, Any] = {
@@ -4820,63 +4827,79 @@ git commit -m "feat: /start (bootstrap admins), /help, /cancel handlers"
 
 ```python
 """/new, текстовые ответы формы и кнопки (d:*)."""
+
 from __future__ import annotations
 
-from typing import Any
+import uuid
+from typing import cast
 
+from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler
-from telegram import filters
+from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.bot import form
+from app.bot.application import AppApplication
 from app.log import get_logger
-from app.models import Draft
+from app.models import Draft, User
 from app.services import drafts
+from app.services.drafts import DraftResult
 from app.services.errors import DraftValidationError, StaleAnswerError, StaleDraftError
 from app.states import CREATE_ROLES
-from app.services.tickets import _role_of
 
 log = get_logger("bot.draft_form")
 
 
-async def _ask_question(context: ContextTypes.DEFAULT_TYPE, user_id: int, draft: Draft) -> None:
+async def _ask_question(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, draft: Draft
+) -> None:
     """Отправить вопрос шага и сохранить message_id условным обновлением."""
+    app = cast(AppApplication, context.application)
+    assert app.db is not None
+    db = app.db
+    chat_id = update.effective_chat.id if update.effective_chat is not None else None
+    assert chat_id is not None
     text, markup = form.question_for(draft.step, draft)
-    msg = await context.bot.send_message(context.chat_id, text, reply_markup=markup)
+    msg = await context.bot.send_message(chat_id, text, reply_markup=markup)
     if draft.step in form.TEXT_STEPS:
         await drafts.save_prompt_message_id(
-            context.application.db.session_factory, draft.id, draft.version, draft.step, msg.message_id
+            db.session_factory, draft.id, draft.version, draft.step, msg.message_id
         )
 
 
-async def _show_stale(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+async def _show_stale(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     """Устаревшая кнопка: показать актуальный вопрос."""
-    db = context.application.db
+    app = cast(AppApplication, context.application)
+    assert app.db is not None
+    db = app.db
     async with db.session_factory() as s:
         d = await drafts.get_draft(s, user_id)
+    chat_id = update.effective_chat.id if update.effective_chat is not None else None
+    assert chat_id is not None
     if d is None:
-        await context.bot.send_message(context.chat_id, "Черновик не найден. Начните заново: /new")
+        await context.bot.send_message(chat_id, "Черновик не найден. Начните заново: /new")
         return
-    await _ask_question(context, user_id, d)
+    await _ask_question(update, context, user_id, d)
 
 
-async def cmd_new(context: ContextTypes.DEFAULT_TYPE) -> None:
-    app = context.application
-    settings, db = app.settings, app.db
-    user = context.effective_user
-    chat = context.chat_id
+async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    app = cast(AppApplication, context.application)
+    db = app.db
+    assert db is not None
+    user = update.effective_user
+    chat = update.effective_chat.id if update.effective_chat is not None else None
     assert user is not None and chat is not None
     async with db.session_factory() as s:
-        role = await _role_of(s, user.id)
+        db_user = (await s.execute(select(User).where(User.telegram_id == user.id))).scalar_one()
+        db_user_id, role = db_user.id, db_user.role
     if role not in CREATE_ROLES:
         await context.bot.send_message(
             chat, "Создавать обращения могут только первая линия (support) и администраторы."
         )
         return
     async with db.session_factory() as s, s.begin():
-        draft, created = await drafts.start_draft(s, user.id)
+        draft, created = await drafts.start_draft(s, db_user_id)
     if created:
-        await _ask_question(context, user.id, draft)
+        await _ask_question(update, context, db_user_id, draft)
         return
     keyboard = InlineKeyboardMarkup(
         [
@@ -4891,92 +4914,107 @@ async def cmd_new(context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def on_text(context: ContextTypes.DEFAULT_TYPE) -> None:
-    app = context.application
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    app = cast(AppApplication, context.application)
     db = app.db
-    user = context.effective_user
-    message = context.effective_message
-    chat = context.chat_id
+    assert db is not None
+    user = update.effective_user
+    message = update.effective_message
+    chat = update.effective_chat.id if update.effective_chat is not None else None
     assert user is not None and message is not None and chat is not None
     text_value = message.text or ""
     reply_to = message.reply_to_message.message_id if message.reply_to_message else None
     async with db.session_factory() as s:
-        draft = await drafts.get_draft(s, user.id)
+        db_user_id = (
+            await s.execute(select(User.id).where(User.telegram_id == user.id))
+        ).scalar_one()
+        draft = await drafts.get_draft(s, db_user_id)
     if draft is None:
         await context.bot.send_message(chat, "Активной формы нет. Создайте её командой /new.")
         return
     try:
         async with db.session_factory() as s, s.begin():
-            result = await drafts.answer_text(s, user.id, text_value, reply_to)
+            result = await drafts.answer_text(s, db_user_id, text_value, reply_to)
     except StaleAnswerError:
         # ответ без нужной привязки: данные не меняются, заново задаём вопрос
-        await _ask_question(context, user.id, draft)
+        await _ask_question(update, context, db_user_id, draft)
         return
     except DraftValidationError as e:
-        await context.bot.send_message(chat, f"Некорректное значение {e.field}. Попробуйте ещё раз.")
+        await context.bot.send_message(
+            chat, f"Некорректное значение {e.field}. Попробуйте ещё раз."
+        )
         return
-    draft.step, draft.version = result.step, result.version
-    await _ask_question(context, user.id, draft)
+    draft.step, draft.version = cast(str, result.step), cast(int, result.version)
+    await _ask_question(update, context, db_user_id, draft)
 
 
-async def _after_choice(context: ContextTypes.DEFAULT_TYPE, user_id: int, result) -> None:
+async def _after_choice(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, result: DraftResult
+) -> None:
     """Общий код после answer_choice: пост/подтверждение или вопрос нового шага."""
-    app = context.application
+    app = cast(AppApplication, context.application)
+    chat = update.effective_chat.id if update.effective_chat is not None else None
+    assert chat is not None
     if result.ticket_id is not None:
         from app.services.post_sync import sync_ticket_post
 
         # пост публикуется ПОСЛЕ коммита создания (сбой публикации не теряет обращение)
+        assert app.settings is not None and app.db is not None
         try:
-            await sync_ticket_post(app.settings, app.db, app.bot, result.ticket_id)
+            await sync_ticket_post(app.settings, app.db, context.bot, result.ticket_id)
         except Exception:
             log.exception("post publish failed after draft send; background sync will catch up")
-        await context.bot.send_message(context.chat_id, f"Обращение #{result.ticket_id} создано.")
+        await context.bot.send_message(chat, f"Обращение #{result.ticket_id} создано.")
         return
     if result.step is None:
-        await context.bot.send_message(context.chat_id, "Форма отменена.")
+        await context.bot.send_message(chat, "Форма отменена.")
         return
+    assert app.db is not None
     db = app.db
     async with db.session_factory() as s:
         d = await drafts.get_draft(s, user_id)
     if d is not None:
-        await _ask_question(context, user_id, d)
+        await _ask_question(update, context, user_id, d)
 
 
-async def on_draft_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
-    app = context.application
+async def on_draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    app = cast(AppApplication, context.application)
     settings, db = app.settings, app.db
-    user = context.effective_user
-    cq = context.callback_query
+    assert settings is not None and db is not None
+    user = update.effective_user
+    cq = update.callback_query
     assert user is not None and cq is not None
     parsed = form.parse_draft_callback(cq.data or "")
     if parsed is None:
         return
     kind, uid_str, version, extra = parsed
-    import uuid as _uuid
-
-    draft_id = _uuid.UUID(uid_str)
+    draft_id = uuid.UUID(uid_str)
+    async with db.session_factory() as s:
+        db_user_id = (
+            await s.execute(select(User.id).where(User.telegram_id == user.id))
+        ).scalar_one()
 
     if kind == "cont":
         async with db.session_factory() as s:
-            d = await drafts.get_draft(s, user.id)
+            d = await drafts.get_draft(s, db_user_id)
         if d is None or d.id != draft_id or d.version != version:
             await cq.answer(text="Форма изменилась. Продолжите с текущего шага.", show_alert=True)
-            await _show_stale(context, user.id)
+            await _show_stale(update, context, db_user_id)
             return
         await cq.answer()
-        await _ask_question(context, user.id, d)
+        await _ask_question(update, context, db_user_id, d)
         return
 
     if kind == "reset":
         try:
             async with db.session_factory() as s, s.begin():
-                d = await drafts.reset_draft(s, user.id, draft_id, version)
+                d = await drafts.reset_draft(s, db_user_id, draft_id, version)
         except StaleDraftError:
             await cq.answer(text="Форма изменилась. Продолжите с текущего шага.", show_alert=True)
-            await _show_stale(context, user.id)
+            await _show_stale(update, context, db_user_id)
             return
         await cq.answer()
-        await _ask_question(context, user.id, d)
+        await _ask_question(update, context, db_user_id, d)
         return
 
     # prio / skip / send / canx
@@ -4984,20 +5022,22 @@ async def on_draft_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     if choice is None:
         await cq.answer()
         return
-    value = form.SHORT_PRIORITY.get(extra) if kind == "prio" else None
+    value = form.SHORT_PRIORITY.get(extra) if (kind == "prio" and extra is not None) else None
     try:
         async with db.session_factory() as s, s.begin():
-            result = await drafts.answer_choice(s, settings, user.id, draft_id, version, choice, value)
+            result = await drafts.answer_choice(
+                s, settings, db_user_id, draft_id, version, choice, value
+            )
     except StaleDraftError:
         log.info("stale draft callback rejected", kind=kind, user_id=user.id)
         await cq.answer(text="Форма изменилась. Продолжите с текущего шага.", show_alert=True)
-        await _show_stale(context, user.id)
+        await _show_stale(update, context, db_user_id)
         return
     await cq.answer()
-    await _after_choice(context, user.id, result)
+    await _after_choice(update, context, db_user_id, result)
 
 
-def register_draft_form_handlers(app) -> None:
+def register_draft_form_handlers(app: AppApplication) -> None:
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_draft_callback, pattern=r"^d:"))
@@ -5015,17 +5055,30 @@ from tests.fakes import make_update
 
 async def _u(tg_app, update_id, user_id, text=None, data=None, message_id=1, reply_to=None):
     await tg_app.process_update(
-        Update.de_json(make_update(update_id, user_id, text=text, data=data,
-                                   message_id=message_id, reply_to_message_id=reply_to), tg_app.bot)
+        Update.de_json(
+            make_update(
+                update_id,
+                user_id,
+                text=text,
+                data=data,
+                message_id=message_id,
+                reply_to_message_id=reply_to,
+            ),
+            tg_app.bot,
+        )
     )
 
 
-async def _draft_row(db, user_id):
+async def _draft_row(db, telegram_id):
     async with db.session_factory() as s:
+        user_id = (
+            await s.execute(text("SELECT id FROM users WHERE telegram_id = :t"), {"t": telegram_id})
+        ).scalar_one()
         return (
             await s.execute(
                 text(
-                    "SELECT id, version, step, prompt_message_id FROM ticket_drafts WHERE user_id = :u"
+                    "SELECT id, version, step, prompt_message_id "
+                    "FROM ticket_drafts WHERE user_id = :u"
                 ),
                 {"u": user_id},
             )
@@ -5066,10 +5119,18 @@ async def test_full_flow_creates_ticket(tg_app, bot, db, settings):
     # 5. отправить
     await _u(tg_app, 7, uid, data=_cb("send", row))
     async with db.session_factory() as s:
-        t = (await s.execute(text("SELECT id, description, priority, request_id, tenant_id, status FROM tickets"))).one()
+        t = (
+            await s.execute(
+                text("SELECT id, description, priority, request_id, tenant_id, status FROM tickets")
+            )
+        ).one()
         n_drafts = (await s.execute(text("SELECT count(*) FROM ticket_drafts"))).scalar_one()
     assert (t.description, t.priority, t.request_id, t.tenant_id, t.status) == (
-        "проблема", "high", "R-1", None, "new"
+        "проблема",
+        "high",
+        "R-1",
+        None,
+        "new",
     )
     assert n_drafts == 0
     # пост в чат разработчиков опубликован после коммита
@@ -5087,8 +5148,8 @@ async def test_text_without_draft_hint(tg_app, bot):
 
 
 async def test_unbound_message_reasks_no_change(tg_app, bot, db):
-    uid = 333
-    row = await _start_draft(tg_app, db, uid)
+    uid = 111  # bootstrap admin (conftest: bootstrap_admin_ids=[111])
+    await _start_draft(tg_app, db, uid)
     await _u(tg_app, 3, uid, "x", message_id=10, reply_to=999)  # reply на чужой вопрос
     row2 = await _draft_row(db, uid)
     assert row2.version == 1 and row2.step == "description"
@@ -5098,7 +5159,7 @@ async def test_unbound_message_reasks_no_change(tg_app, bot, db):
 
 async def test_old_button_cannot_confirm_new_draft(tg_app, bot, db):
     """Кнопка «Отправить» удалённого черновика не подтверждает новый."""
-    uid = 444
+    uid = 111  # bootstrap admin (conftest: bootstrap_admin_ids=[111])
     row = await _start_draft(tg_app, db, uid)
     # заполнить до confirm
     await _u(tg_app, 3, uid, "текст", message_id=10, reply_to=row.prompt_message_id)
@@ -5136,7 +5197,9 @@ async def test_new_with_existing_draft_offers_continue(tg_app, bot, db):
     row = await _start_draft(tg_app, db, uid)
     await _u(tg_app, 3, uid, "текст", message_id=10, reply_to=row.prompt_message_id)
     await _u(tg_app, 4, uid, "/new")
-    assert "Продолжить" in bot.sent[-1]["text"] or "незавершённая" in bot.sent[-1]["text"]
+    sent = bot.sent[-1]
+    buttons = sent["reply_markup"].inline_keyboard[0]
+    assert [b.text for b in buttons] == ["Продолжить", "Начать заново"]
 ```
 
 Note: `test_new_with_existing_draft_offers_continue` — сообщение «Продолжить/Начать заново» отправляется БЕЗ текста-кнопок в тексте (это inline-кнопки). Утверждение: проверь по `bot.sent[-1]["reply_markup"]` (RecordingBot сохраняет reply_markup в kwargs). Замени утверждение на:
