@@ -1,6 +1,7 @@
 # tests/integration/test_post_sync.py
 import asyncio
 import time
+from datetime import timedelta
 
 import pytest
 import telegram
@@ -133,7 +134,7 @@ async def test_429_retry_uses_retry_after(db, settings, bot, monkeypatch):
     import app.services.post_sync as ps
 
     monkeypatch.setattr(ps.asyncio, "sleep", fake_sleep)
-    bot.fail_next_send = telegram.error.RetryAfter(1)
+    bot.fail_next_send = telegram.error.RetryAfter(timedelta(seconds=1))
     await sync_ticket_post(settings, db, bot, tid)
     assert sleeps == [1.0]
     assert len(bot.sent) == 1
