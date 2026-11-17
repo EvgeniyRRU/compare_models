@@ -60,3 +60,31 @@ async def run_post_sync_loop(settings: Settings, db: DB, bot: Any) -> None:
             raise
         except Exception as exc:
             _report("post_sync_loop", exc)
+
+
+async def run_draft_ttl_loop(settings: Settings, db: DB) -> None:
+    from app.services.drafts import delete_expired_drafts
+
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            removed = await delete_expired_drafts(db.session_factory, settings.draft_ttl_hours)
+            if removed:
+                log.info("expired drafts removed", count=removed)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _report("draft_ttl", exc)
+
+
+async def run_processed_updates_cleanup(db: DB) -> None:
+    from app.services.updates import purge_processed_updates
+
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            await purge_processed_updates(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _report("dedup_cleanup", exc)
