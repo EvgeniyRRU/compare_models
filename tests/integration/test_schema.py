@@ -51,8 +51,9 @@ async def _insert_ticket(session_factory, **kw) -> None:
 
 
 async def test_new_cannot_have_assignee(db):
+    assignee = await _make_user(db.session_factory)
     with pytest.raises(IntegrityError):
-        await _insert_ticket(db.session_factory, assignee_id=1, taken_at=_TS)
+        await _insert_ticket(db.session_factory, assignee_id=assignee, taken_at=_TS)
 
 
 async def test_in_progress_requires_assignee(db):
@@ -67,8 +68,11 @@ async def test_in_progress_requires_taken_at(db):
 
 
 async def test_final_requires_closed_at(db):
+    assignee = await _make_user(db.session_factory)
     with pytest.raises(IntegrityError):
-        await _insert_ticket(db.session_factory, status="resolved", assignee_id=1, taken_at=_TS)
+        await _insert_ticket(
+            db.session_factory, status="resolved", assignee_id=assignee, taken_at=_TS
+        )
 
 
 async def test_non_final_forbids_closed_at(db):
@@ -135,3 +139,41 @@ async def test_updated_at_changes_on_update(db):
             await s.execute(text("SELECT updated_at FROM users WHERE id = :i"), {"i": uid})
         ).scalar_one()
     assert after > before
+
+
+async def test_valid_in_progress_row(db):
+    author = await _make_user(db.session_factory)
+    assignee = await _make_user(db.session_factory)
+    await _insert_ticket(
+        db.session_factory,
+        author_id=author,
+        assignee_id=assignee,
+        status="in_progress",
+        taken_at=_TS,
+    )
+
+
+async def test_valid_resolved_row(db):
+    author = await _make_user(db.session_factory)
+    assignee = await _make_user(db.session_factory)
+    await _insert_ticket(
+        db.session_factory,
+        author_id=author,
+        assignee_id=assignee,
+        status="resolved",
+        taken_at=_TS,
+        closed_at=_TS,
+    )
+
+
+async def test_defaults_version_and_post_synced_version(db):
+    await _insert_ticket(db.session_factory)
+    async with db.session_factory() as s:
+        tid = (await s.execute(text("SELECT MAX(id) FROM tickets"))).scalar_one()
+        row = (
+            await s.execute(
+                text("SELECT version, post_synced_version FROM tickets WHERE id = :i"),
+                {"i": tid},
+            )
+        ).one()
+    assert row == (1, 0)
