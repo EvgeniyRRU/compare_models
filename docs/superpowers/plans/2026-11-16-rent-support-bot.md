@@ -3119,8 +3119,13 @@ from app.services.post_sync import MAX_POST_LEN, format_user, render_post
 
 def _ticket(**kw):
     base = dict(
-        id=123, description="desc", priority="high", request_id="R-1", tenant_id=None,
-        status="new", assignee_id=None,
+        id=123,
+        description="desc",
+        priority="high",
+        request_id="R-1",
+        tenant_id=None,
+        status="new",
+        assignee_id=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -3184,11 +3189,13 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'app.services.post_sync
 session-level advisory lock на выделенном физическом соединении (lock_engine,
 NullPool). Technical-операция: tickets.version НЕ увеличивается.
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any, cast
 
 import telegram
 from sqlalchemy import select, text, update
@@ -3233,7 +3240,10 @@ def render_post(ticket: Ticket, author: User, assignee: User | None) -> str:
         f"Арендатор: {ticket.tenant_id or '—'}\n"
         f"Автор: {format_user(author)}"
     )
-    footer = f"Статус: {STATUS_RU[ticket.status]}\nИсполнитель: {format_user(assignee) if assignee else '—'}"
+    footer = (
+        f"Статус: {STATUS_RU[ticket.status]}\n"
+        f"Исполнитель: {format_user(assignee) if assignee else '—'}"
+    )
     description = ticket.description
     total = f"{header}\n\n{description}\n\n{footer}"
     if len(total) > MAX_POST_LEN:
@@ -3243,19 +3253,23 @@ def render_post(ticket: Ticket, author: User, assignee: User | None) -> str:
     return total
 
 
-async def bot_api_call(func: Callable, *args: Any, retries: int = 5, **kwargs: Any) -> Any:
+async def bot_api_call(
+    func: Callable[..., Any], *args: Any, retries: int = 5, **kwargs: Any
+) -> Any:
     """Вызов метода бота с ретраями: 429 — backoff с учётом retry_after."""
     for attempt in range(retries):
         try:
             return await func(*args, **kwargs)
         except telegram.error.RetryAfter as e:
-            wait = (e.parameters.retry_after if e.parameters is not None else 1) + attempt
+            retry_after = e.retry_after
+            seconds = retry_after if isinstance(retry_after, int) else retry_after.total_seconds()
+            wait = seconds + attempt
             log.warning("telegram 429, повтор через %.1f с", wait)
             await asyncio.sleep(wait)
     raise RuntimeError("Превышено число ретраев Telegram API")
 
 
-async def _advisory_lock(conn: Any, key: int, timeout: float) -> bool:
+async def _advisory_lock(conn: Any, key: int, timeout: float) -> bool:  # noqa: ASYNC109
     """pg_try_advisory_lock на выделенном соединении. timeout <= 0 — одна попытка (skip)."""
     deadline = time.monotonic() + max(timeout, 0.0)
     while True:
@@ -3306,13 +3320,15 @@ async def sync_ticket_post(
             await conn.close()
 
 
-async def _do_sync(settings: Settings, db: DB, bot: Any, ticket_id: int, *, force_new: bool) -> None:
+async def _do_sync(
+    settings: Settings, db: DB, bot: Any, ticket_id: int, *, force_new: bool
+) -> None:
     # 2. Под блокировкой — свежее состояние из БД; рендерим ТОЛЬКО из него.
     async with db.session_factory() as session:
         ticket = await session.get(Ticket, ticket_id)
         if ticket is None:
             return
-        author = await session.get(User, ticket.author_id)
+        author = cast(User, await session.get(User, ticket.author_id))
         assignee = await session.get(User, ticket.assignee_id) if ticket.assignee_id else None
         rendered_version = ticket.version
         post_text = render_post(ticket, author, assignee)
@@ -3325,7 +3341,9 @@ async def _do_sync(settings: Settings, db: DB, bot: Any, ticket_id: int, *, forc
         message_id = sent.message_id
     else:
         try:
-            await bot_api_call(bot.edit_message_text, post_text, chat_id=dev_chat, message_id=message_id)
+            await bot_api_call(
+                bot.edit_message_text, post_text, chat_id=dev_chat, message_id=message_id
+            )
         except telegram.error.BadRequest as e:
             msg = str(e).lower()
             if "message is not modified" in msg:
