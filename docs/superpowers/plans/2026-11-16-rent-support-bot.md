@@ -4151,13 +4151,15 @@ git commit -m "feat: draft form steps, questions and compact callback_data"
 - prompt_message_id — technical-запись, version не увеличивает, сохраняется
   условным UPDATE (draft_id + version + step).
 """
+
 from __future__ import annotations
 
 import uuid as _uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
@@ -4182,7 +4184,9 @@ async def get_draft(session: AsyncSession, user_id: int) -> Draft | None:
     ).scalar_one_or_none()
 
 
-async def start_draft(session: AsyncSession, user_id: int, *, reset: bool = False) -> tuple[Draft, bool]:
+async def start_draft(
+    session: AsyncSession, user_id: int, *, reset: bool = False
+) -> tuple[Draft, bool]:
     """(draft, created). При reset=True существующий черновик заменяется новым."""
     draft = await get_draft(session, user_id)
     if draft is not None:
@@ -4302,7 +4306,11 @@ async def answer_choice(
         await session.flush()
         session.add(
             TicketEvent(
-                ticket_id=ticket.id, event_type="created", actor_id=user_id, new_status="new", version=1
+                ticket_id=ticket.id,
+                event_type="created",
+                actor_id=user_id,
+                new_status="new",
+                version=1,
             )
         )
         from app.metrics import tickets_created_total
@@ -4321,7 +4329,7 @@ async def answer_choice(
 
 
 async def save_prompt_message_id(
-    session_factory: async_sessionmaker,
+    session_factory: async_sessionmaker[AsyncSession],
     draft_id: _uuid.UUID,
     version: int,
     step: str,
@@ -4350,15 +4358,20 @@ async def delete_draft(
         q = q.where(Draft.id == draft_id)
     if expected_version is not None:
         q = q.where(Draft.version == expected_version)
-    result = await session.execute(q)
+    result = cast(CursorResult[()], await session.execute(q))
     await session.flush()
     return (result.rowcount or 0) > 0
 
 
-async def delete_expired_drafts(session_factory: async_sessionmaker, ttl_hours: int) -> int:
+async def delete_expired_drafts(
+    session_factory: async_sessionmaker[AsyncSession], ttl_hours: int
+) -> int:
     cutoff = _now() - timedelta(hours=ttl_hours)
     async with session_factory() as session, session.begin():
-        result = await session.execute(delete(Draft).where(Draft.updated_at < cutoff))
+        result = cast(
+            CursorResult[()],
+            await session.execute(delete(Draft).where(Draft.updated_at < cutoff)),
+        )
         return result.rowcount or 0
 ```
 
