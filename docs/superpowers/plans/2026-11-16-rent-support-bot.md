@@ -3759,7 +3759,9 @@ async def test_error_does_not_rollback_dedup(db):
 async def test_purge_old_updates(db):
     await register_update(db, 300)
     async with db.session_factory() as s, s.begin():
-        await s.execute(text("UPDATE processed_updates SET processed_at = now() - interval '49 hours'"))
+        await s.execute(
+            text("UPDATE processed_updates SET processed_at = now() - interval '49 hours'")
+        )
     await purge_processed_updates(db)
     async with db.session_factory() as s:
         n = (await s.execute(text("SELECT count(*) FROM processed_updates"))).scalar_one()
@@ -3775,9 +3777,12 @@ async def test_purge_old_updates(db):
 поэтому ошибка обработки её не откатывает. Не более одной попытки
 обработки каждого апдейта.
 """
+
 from __future__ import annotations
 
-from sqlalchemy import text
+from typing import cast
+
+from sqlalchemy import CursorResult, text
 
 from app.db import DB
 
@@ -3785,12 +3790,15 @@ from app.db import DB
 async def register_update(db: DB, update_id: int) -> bool:
     """True, если апдейт обрабатывается впервые."""
     async with db.session_factory() as session, session.begin():
-        result = await session.execute(
-            text(
-                "INSERT INTO processed_updates (update_id) VALUES (:id) "
-                "ON CONFLICT (update_id) DO NOTHING"
+        result = cast(
+            CursorResult[()],
+            await session.execute(
+                text(
+                    "INSERT INTO processed_updates (update_id) VALUES (:id) "
+                    "ON CONFLICT (update_id) DO NOTHING"
+                ),
+                {"id": update_id},
             ),
-            {"id": update_id},
         )
         return (result.rowcount or 0) == 1
 
@@ -3798,7 +3806,10 @@ async def register_update(db: DB, update_id: int) -> bool:
 async def purge_processed_updates(db: DB, older_than_hours: int = 48) -> None:
     async with db.session_factory() as session, session.begin():
         await session.execute(
-            text("DELETE FROM processed_updates WHERE processed_at < now() - make_interval(hours => :h)"),
+            text(
+                "DELETE FROM processed_updates WHERE processed_at < now() - "
+                "make_interval(hours => :h)"
+            ),
             {"h": older_than_hours},
         )
 ```
