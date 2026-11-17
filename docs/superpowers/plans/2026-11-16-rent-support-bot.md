@@ -1784,6 +1784,8 @@ def make_update(
             "from": make_user_dict(123456789, first_name="Bot"),
             "text": "question",
         }
+    if text is not None and text.startswith("/"):
+        message["entities"] = [{"type": "bot_command", "offset": 0, "length": len(text.split()[0])}]
     return {"update_id": update_id, "message": message}
 
 
@@ -3877,10 +3879,10 @@ async def _post_init(app: Any) -> None:
         )
 
 
-async def _on_error(bot: Any, context: Any) -> None:
-    update = context.update
-    update_id = update.update_id if update is not None else None
-    user_id = update.effective_user.id if update is not None and update.effective_user else None
+async def _on_error(update: object, context: Any) -> None:
+    upd = update if isinstance(update, Update) else None
+    update_id = upd.update_id if upd is not None else None
+    user_id = upd.effective_user.id if upd is not None and upd.effective_user else None
     log.error(
         "telegram update error",
         exc_info=context.error,
@@ -3944,9 +3946,9 @@ def build_application(settings: Settings, db: DB, bot: Any = None) -> AppApplica
     app = cast(AppApplication, builder.post_init(_post_init).build())
     app.settings = settings
     app.db = db
-    from app.bot.handlers.callbacks import register_post_callback_handlers  # type: ignore  # noqa: E501
-    from app.bot.handlers.commands import register_command_handlers  # type: ignore  # noqa: E501
-    from app.bot.handlers.draft_form import register_draft_form_handlers  # type: ignore  # noqa: E501
+    from app.bot.handlers.callbacks import register_post_callback_handlers
+    from app.bot.handlers.commands import register_command_handlers
+    from app.bot.handlers.draft_form import register_draft_form_handlers
 
     register_command_handlers(app)
     register_draft_form_handlers(app)
@@ -4642,16 +4644,20 @@ git commit -m "test: drafts (concurrency, stale buttons, prompt binding, TTL)"
 
 ```python
 """Команды: /start, /help, /cancel."""
+
 from __future__ import annotations
 
-from telegram import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+from typing import cast
+
+from sqlalchemy import select
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import CommandHandler, ContextTypes
 
+from app.bot.application import AppApplication
 from app.log import get_logger
 from app.models import User
 from app.services import drafts
 from app.services.users import change_role
-from sqlalchemy import update as sa_update
 
 log = get_logger("bot.commands")
 
@@ -4663,69 +4669,62 @@ HELP_TEXT = (
 )
 
 
-def _menu_keyboard(url: str):
+def _menu_keyboard(url: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [[KeyboardButton(text="📋 Обращения", web_app=WebAppInfo(url=url))]],
         resize_keyboard=True,
     )
 
 
-async def cmd_start(context: ContextTypes.DEFAULT_TYPE) -> None:
-    app = context.application
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    app = cast(AppApplication, context.application)
     settings, db = app.settings, app.db
-    user = context.effective_user
+    assert settings is not None and db is not None
+    user = update.effective_user
     assert user is not None
-    # пользователь уже upsertнут в process_update
-    async with db.session_factory() as s, s.begin():
-        row = await s.get(User, (await _user_id_by_tg(s, user.id)).__class__ and 0) if False else None
-    # проще: читаем роль и при необходимости назначаем bootstrap-admin
-    from sqlalchemy import select
-
+    # пользователь уже upsertнут в process_update; читаем роль и при
+    # необходимости назначаем bootstrap-admin
     async with db.session_factory() as s, s.begin():
         db_user = (await s.execute(select(User).where(User.telegram_id == user.id))).scalar_one()
         role = db_user.role
         if role is None and user.id in settings.bootstrap_admin_ids:
             await change_role(s, user_id=db_user.id, new_role="admin")
             role = "admin"
-    chat = context.chat_id
-    assert chat is not None
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    assert chat_id is not None
     if role is None:
         await context.bot.send_message(
-            chat,
+            chat_id,
             "Вы зарегистрированы, но у вас пока нет доступа. "
             "Обратитесь к администратору, чтобы получить роль.",
         )
         return
     await context.bot.send_message(
-        chat,
-        f"Привет, {user.first_name}! Создайте обращение командой /new или смотрите их через кнопку ниже.",
+        chat_id,
+        f"Привет, {user.first_name}! Создайте обращение командой /new "
+        "или смотрите их через кнопку ниже.",
         reply_markup=_menu_keyboard(settings.mini_app_url) if settings.mini_app_url else None,
     )
 
 
-async def _user_id_by_tg(session, telegram_id: int) -> int:
-    from sqlalchemy import select
-
-    return (await session.execute(select(User.id).where(User.telegram_id == telegram_id))).scalar_one()
-
-
-async def cmd_help(context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat = context.chat_id
-    assert chat is not None
-    await context.bot.send_message(chat, HELP_TEXT)
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    assert chat_id is not None
+    await context.bot.send_message(chat_id, HELP_TEXT)
 
 
-async def cmd_cancel(context: ContextTypes.DEFAULT_TYPE) -> None:
-    app = context.application
-    user = context.effective_user
-    chat = context.chat_id
-    assert user is not None and chat is not None
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    app = cast(AppApplication, context.application)
+    user = update.effective_user
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    assert user is not None and chat_id is not None
+    assert app.db is not None
     async with app.db.session_factory() as s, s.begin():
         removed = await drafts.delete_draft(s, user.id)
-    await context.bot.send_message(chat, "Форма отменена." if removed else "Нет активной формы.")
+    await context.bot.send_message(chat_id, "Форма отменена." if removed else "Нет активной формы.")
 
 
-def register_command_handlers(app) -> None:
+def register_command_handlers(app: AppApplication) -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
@@ -4744,8 +4743,6 @@ from tests.fakes import make_update
 
 
 async def _u(tg_app, update_id, user_id, text=None, data=None, first_name="Test"):
-    from tests.fakes import make_user_dict
-
     d = make_update(update_id, user_id, text=text, data=data)
     if first_name and "message" in d:
         d["message"]["from"]["first_name"] = first_name
@@ -4755,7 +4752,9 @@ async def _u(tg_app, update_id, user_id, text=None, data=None, first_name="Test"
 async def test_start_bootstrap_admin(tg_app, bot, db):
     await _u(tg_app, 1, 111, "/start")  # 111 — из BOOTSTRAP_ADMIN_IDS
     async with db.session_factory() as s:
-        role = (await s.execute(text("SELECT role FROM users WHERE telegram_id = 111"))).scalar_one()
+        role = (
+            await s.execute(text("SELECT role FROM users WHERE telegram_id = 111"))
+        ).scalar_one()
     assert role == "admin"
     assert len(bot.sent) == 1
 
@@ -4763,7 +4762,9 @@ async def test_start_bootstrap_admin(tg_app, bot, db):
 async def test_start_no_role_notification(tg_app, bot, db):
     await _u(tg_app, 2, 222, "/start")
     async with db.session_factory() as s:
-        role = (await s.execute(text("SELECT role FROM users WHERE telegram_id = 222"))).scalar_one()
+        role = (
+            await s.execute(text("SELECT role FROM users WHERE telegram_id = 222"))
+        ).scalar_one()
     assert role is None
     assert "администратор" in bot.sent[-1]["text"].lower()
 
@@ -4772,7 +4773,9 @@ async def test_name_updated_on_every_interaction(tg_app, db):
     await _u(tg_app, 3, 333, "/start", first_name="Old")
     await _u(tg_app, 4, 333, "/help", first_name="New")
     async with db.session_factory() as s:
-        name = (await s.execute(text("SELECT first_name FROM users WHERE telegram_id = 333"))).scalar_one()
+        name = (
+            await s.execute(text("SELECT first_name FROM users WHERE telegram_id = 333"))
+        ).scalar_one()
     assert name == "New"
 
 
