@@ -38,10 +38,10 @@ async def _post_init(app: Any) -> None:
         )
 
 
-async def _on_error(bot: Any, context: Any) -> None:
-    update = context.update
-    update_id = update.update_id if update is not None else None
-    user_id = update.effective_user.id if update is not None and update.effective_user else None
+async def _on_error(update: object, context: Any) -> None:
+    upd = update if isinstance(update, Update) else None
+    update_id = upd.update_id if upd is not None else None
+    user_id = upd.effective_user.id if upd is not None and upd.effective_user else None
     log.error(
         "telegram update error",
         exc_info=context.error,
@@ -105,9 +105,9 @@ def build_application(settings: Settings, db: DB, bot: Any = None) -> AppApplica
     app = cast(AppApplication, builder.post_init(_post_init).build())
     app.settings = settings
     app.db = db
-    from app.bot.handlers.callbacks import register_post_callback_handlers  # type: ignore  # noqa: E501
-    from app.bot.handlers.commands import register_command_handlers  # type: ignore  # noqa: E501
-    from app.bot.handlers.draft_form import register_draft_form_handlers  # type: ignore  # noqa: E501
+    from app.bot.handlers.callbacks import register_post_callback_handlers
+    from app.bot.handlers.commands import register_command_handlers
+    from app.bot.handlers.draft_form import register_draft_form_handlers
 
     register_command_handlers(app)
     register_draft_form_handlers(app)
