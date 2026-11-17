@@ -1709,7 +1709,9 @@ class RecordingBot(Bot):
             raise exc
         if self.send_hook is not None:
             await self.send_hook()
-        self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
+        self.sent.append(
+            {"chat_id": chat_id, "message_id": len(self.sent) + 1, "text": text, **kwargs}
+        )
         return Message(
             message_id=len(self.sent),
             date=int(time.time()),
@@ -3391,6 +3393,7 @@ git commit -m "feat: post renderer (<=4096) and advisory-lock post sync"
 # tests/integration/test_post_sync.py
 import asyncio
 import time
+from datetime import timedelta
 
 import pytest
 import telegram
@@ -3439,13 +3442,17 @@ async def _selector_ids(db):
 
     async with db.session_factory() as s:
         return (
-            await s.execute(
-                text(
-                    "SELECT id FROM tickets "
-                    "WHERE message_id IS NULL OR post_synced_version < version"
+            (
+                await s.execute(
+                    text(
+                        "SELECT id FROM tickets "
+                        "WHERE message_id IS NULL OR post_synced_version < version"
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
 
 async def test_initial_publish(db, settings, bot):
@@ -3519,9 +3526,7 @@ async def test_429_retry_uses_retry_after(db, settings, bot, monkeypatch):
     import app.services.post_sync as ps
 
     monkeypatch.setattr(ps.asyncio, "sleep", fake_sleep)
-    bot.fail_next_send = telegram.error.RetryAfter(
-        "429", telegram.error.RetryAfterParameters(retry_after=1)
-    )
+    bot.fail_next_send = telegram.error.RetryAfter(timedelta(seconds=1))
     await sync_ticket_post(settings, db, bot, tid)
     assert sleeps == [1.0]
     assert len(bot.sent) == 1
@@ -3558,7 +3563,9 @@ async def test_no_stale_post_after_concurrent_changes(db, settings, bot):
     dev_id = await _dev_id(db)
     async with db.session_factory() as s, s.begin():
         t = await tickets_svc.load_ticket(s, tid)
-        await tickets_svc.apply_transition(s, settings, dev_id, t, expected_version=t.version, action="to_resolved")
+        await tickets_svc.apply_transition(
+            s, settings, dev_id, t, expected_version=t.version, action="to_resolved"
+        )
     await post_sync_iteration(settings, db, bot)
     assert "решено" in bot.edited[-1]["text"]
     row = await _row(db, tid)
@@ -3610,7 +3617,9 @@ async def test_skip_when_lock_busy(db, settings, bot):
     tid = await _make_ticket(db, settings)
     conn = await db.lock_engine.connect()
     try:
-        assert (await conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": tid})).scalar_one()
+        assert (
+            await conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": tid})
+        ).scalar_one()
         t0 = time.monotonic()
         await sync_ticket_post(settings, db, bot, tid, lock_timeout=0.0)
         assert time.monotonic() - t0 < 1.0
@@ -3625,7 +3634,9 @@ async def test_skip_when_lock_busy(db, settings, bot):
 ```python
 # app/workers.py
 """Фоновые задачи: работают в каждой реплике; истина — в БД."""
+
 import asyncio
+from typing import Any
 
 import sentry_sdk
 from sqlalchemy import select
@@ -3646,17 +3657,25 @@ def _report(component: str, exc: BaseException) -> None:
     sentry_sdk.capture_exception(exc)
 
 
-async def post_sync_iteration(settings: Settings, db: DB, bot) -> None:
-    """Одна итерация: выбрать несинхронизированные и синхронизировать (skip при занятой блокировке)."""
+async def post_sync_iteration(settings: Settings, db: DB, bot: Any) -> None:
+    """Одна итерация: выбрать несинхронизированные и синхронизировать
+    (skip при занятой блокировке)."""
     async with db.session_factory() as session:
         ids = (
-            await session.execute(
-                select(Ticket.id)
-                .where((Ticket.message_id.is_(None)) | (Ticket.post_synced_version < Ticket.version))
-                .order_by(Ticket.id)
-                .limit(50)
+            (
+                await session.execute(
+                    select(Ticket.id)
+                    .where(
+                        (Ticket.message_id.is_(None))
+                        | (Ticket.post_synced_version < Ticket.version)
+                    )
+                    .order_by(Ticket.id)
+                    .limit(50)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     for ticket_id in ids:
         try:
             await sync_ticket_post(settings, db, bot, ticket_id, lock_timeout=0.0)
@@ -3666,7 +3685,7 @@ async def post_sync_iteration(settings: Settings, db: DB, bot) -> None:
             _report("post_sync", exc)
 
 
-async def run_post_sync_loop(settings: Settings, db: DB, bot) -> None:
+async def run_post_sync_loop(settings: Settings, db: DB, bot: Any) -> None:
     while True:
         await asyncio.sleep(settings.post_sync_interval_seconds)
         try:
@@ -3694,7 +3713,7 @@ git commit -m "feat: post sync integration tests and background sync worker"
 - [ ] **Step 1: Полный прогон**
 
 Run: `docker compose --profile test run --rm test pytest -q && docker compose --profile test run --rm test ruff check app tests && docker compose --profile test run --rm test mypy app`
-Expected: all green (~45 тестов).
+Expected: all green (68 тестов; 4 warning: path_separator + 3× PTBDeprecationWarning из 429-теста — PTB-внутренние, cleanup в Stage 9).
 
 - [ ] **Step 2: Commit (если были фиксы)**
 
