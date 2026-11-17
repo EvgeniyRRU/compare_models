@@ -128,6 +128,8 @@ def make_update(
             "from": make_user_dict(123456789, first_name="Bot"),
             "text": "question",
         }
+    if text is not None and text.startswith("/"):
+        message["entities"] = [{"type": "bot_command", "offset": 0, "length": len(text.split()[0])}]
     return {"update_id": update_id, "message": message}
 
 
