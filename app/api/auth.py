@@ -1,4 +1,5 @@
 """Валидация initData Mini App (HMAC-SHA256 по документации Telegram)."""
+
 from __future__ import annotations
 
 import hashlib
