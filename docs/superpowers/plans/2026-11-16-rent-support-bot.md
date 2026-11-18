@@ -5737,7 +5737,7 @@ git commit -m "fix: stage 5 lint/type fixes"
 ```python
 # tests/integration/test_reminders.py
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 
@@ -5747,19 +5747,23 @@ from app.services.reminders import ReminderClaim, claim_due_reminders, send_remi
 
 
 def _utcnow():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def _ticket(db, settings, priority: str = "critical") -> int:
     async with db.session_factory() as s, s.begin():
         u = await users_svc.upsert_user(s, telegram_id=1)
-        t = await tickets_svc.create_ticket(s, settings, u.id, description="d", priority=priority, request_id="r")
+        t = await tickets_svc.create_ticket(
+            s, settings, u.id, description="d", priority=priority, request_id="r"
+        )
     return t.id
 
 
 async def _next_reminder(db, tid):
     async with db.session_factory() as s:
-        return (await s.execute(text("SELECT next_reminder_at FROM tickets WHERE id = :i"), {"i": tid})).scalar_one()
+        return (
+            await s.execute(text("SELECT next_reminder_at FROM tickets WHERE id = :i"), {"i": tid})
+        ).scalar_one()
 
 
 async def test_schedule_on_create(db, settings):
@@ -5807,7 +5811,8 @@ async def test_take_clears_reminder_and_stops_claims(db, settings):
     tid = await _ticket(db, settings)
     async with db.session_factory() as s, s.begin():
         await s.execute(
-            text("UPDATE tickets SET next_reminder_at = now() - interval '1 minute' WHERE id = :i"), {"i": tid}
+            text("UPDATE tickets SET next_reminder_at = now() - interval '1 minute' WHERE id = :i"),
+            {"i": tid},
         )
     claims = await claim_due_reminders(db.session_factory, settings)
     assert len(claims) == 1
@@ -5828,7 +5833,9 @@ async def test_decline_reschedules(db, settings):
         t = await tickets_svc.load_ticket(s, tid)
         await tickets_svc.take_ticket(s, settings, dev.id, t, expected_version=t.version)
         t = await tickets_svc.load_ticket(s, tid)
-        await tickets_svc.apply_transition(s, settings, dev.id, t, expected_version=t.version, action="decline")
+        await tickets_svc.apply_transition(
+            s, settings, dev.id, t, expected_version=t.version, action="decline"
+        )
     nr = await _next_reminder(db, tid)
     assert nr is not None
 
@@ -5837,7 +5844,9 @@ async def test_send_as_reply_to_post(db, settings, bot):
     tid = await _ticket(db, settings)
     async with db.session_factory() as s, s.begin():
         await s.execute(text("UPDATE tickets SET message_id = 777 WHERE id = :i"), {"i": tid})
-    await send_reminders(settings, bot, [ReminderClaim(ticket_id=tid, priority="critical", message_id=777)])
+    await send_reminders(
+        settings, bot, [ReminderClaim(ticket_id=tid, priority="critical", message_id=777)]
+    )
     assert len(bot.sent) == 1
     assert bot.sent[0]["reply_to_message_id"] == 777
     assert f"#{tid}" in bot.sent[0]["text"]
@@ -5846,7 +5855,9 @@ async def test_send_as_reply_to_post(db, settings, bot):
 
 async def test_send_without_post_has_no_reply(db, settings, bot):
     tid = await _ticket(db, settings)
-    await send_reminders(settings, bot, [ReminderClaim(ticket_id=tid, priority="low", message_id=None)])
+    await send_reminders(
+        settings, bot, [ReminderClaim(ticket_id=tid, priority="low", message_id=None)]
+    )
     assert len(bot.sent) == 1
     assert bot.sent[0].get("reply_to_message_id") is None
 
@@ -5855,9 +5866,13 @@ async def test_send_failure_no_retry(db, settings, bot):
     """Одна попытка на срок: сбой логируется, повторной отправки нет."""
     tid = await _ticket(db, settings)
     bot.fail_next_send = RuntimeError("telegram down")
-    await send_reminders(settings, bot, [ReminderClaim(ticket_id=tid, priority="high", message_id=None)])
+    await send_reminders(
+        settings, bot, [ReminderClaim(ticket_id=tid, priority="high", message_id=None)]
+    )
     assert bot.fail_next_send is None  # исключение потреблено, без ретрая
-    await send_reminders(settings, bot, [ReminderClaim(ticket_id=tid, priority="high", message_id=None)])
+    await send_reminders(
+        settings, bot, [ReminderClaim(ticket_id=tid, priority="high", message_id=None)]
+    )
     assert len(bot.sent) == 1
 ```
 
@@ -5870,15 +5885,17 @@ async def test_send_failure_no_retry(db, settings, bot):
 Расписание в БД (next_reminder_at) + FOR UPDATE SKIP LOCKED — нет дублей
 между репликами. In-memory JobQueue PTB не используется.
 """
+
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import sentry_sdk
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.log import get_logger
@@ -5897,11 +5914,11 @@ class ReminderClaim:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def claim_due_reminders(
-    session_factory: async_sessionmaker, settings: Settings, limit: int = 50
+    session_factory: async_sessionmaker[AsyncSession], settings: Settings, limit: int = 50
 ) -> list[ReminderClaim]:
     """Одна транзакция: SELECT ... FOR UPDATE SKIP LOCKED + сдвиг next_reminder_at + коммит.
 
@@ -5911,29 +5928,41 @@ async def claim_due_reminders(
     now = _now()
     async with session_factory() as session, session.begin():
         tickets = (
-            await session.execute(
-                select(Ticket)
-                .where(
-                    Ticket.status == "new",
-                    Ticket.next_reminder_at.is_not(None),
-                    Ticket.next_reminder_at <= now,
+            (
+                await session.execute(
+                    select(Ticket)
+                    .where(
+                        Ticket.status == "new",
+                        Ticket.next_reminder_at.is_not(None),
+                        Ticket.next_reminder_at <= now,
+                    )
+                    .with_for_update(skip_locked=True)
+                    .limit(limit)
                 )
-                .with_for_update(skip_locked=True)
-                .limit(limit)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         claims: list[ReminderClaim] = []
         for t in tickets:
             t.next_reminder_at = now + timedelta(seconds=settings.reminder_interval(t.priority))
-            claims.append(ReminderClaim(ticket_id=t.id, priority=t.priority, message_id=t.message_id))
+            claims.append(
+                ReminderClaim(ticket_id=t.id, priority=t.priority, message_id=t.message_id)
+            )
     return claims
 
 
-async def send_reminders(settings: Settings, bot, claims: list[ReminderClaim]) -> None:
-    """После коммита: ответ на пост (если пост есть). Ошибка — лог + Sentry, без повторной отправки."""
+async def send_reminders(settings: Settings, bot: Any, claims: list[ReminderClaim]) -> None:
+    """После коммита: ответ на пост (если пост есть).
+
+    Ошибка — лог + Sentry, без повторной отправки.
+    """
     for claim in claims:
         try:
-            text = f"⏰ Напоминание: обращение #{claim.ticket_id} ({PRIORITY_RU[claim.priority]}) всё ещё не взято."
+            text = (
+                f"⏰ Напоминание: обращение #{claim.ticket_id} "
+                f"({PRIORITY_RU[claim.priority]}) всё ещё не взято."
+            )
             await bot_api_call(
                 bot.send_message, settings.dev_chat_id, text, reply_to_message_id=claim.message_id
             )
@@ -5950,7 +5979,7 @@ async def send_reminders(settings: Settings, bot, claims: list[ReminderClaim]) -
 
 В `app/workers.py`:
 ```python
-async def run_reminder_loop(settings: Settings, db: DB, bot) -> None:
+async def run_reminder_loop(settings: Settings, db: DB, bot: Any) -> None:
     from app.services.reminders import claim_due_reminders, send_reminders
 
     while True:
