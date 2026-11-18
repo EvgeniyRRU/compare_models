@@ -6,6 +6,8 @@ from fastapi import FastAPI
 
 from app import log
 from app.api.health import router as health_router
+from app.api.tickets import router as api_tickets_router
+from app.api.users import router as api_users_router
 from app.bot.application import build_application
 from app.bot.webhook import router as webhook_router
 from app.config import Settings, get_settings
@@ -63,6 +65,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings or get_settings()
     app.include_router(health_router)
     app.include_router(webhook_router)
+    app.include_router(api_tickets_router, prefix="/api")
+    app.include_router(api_users_router, prefix="/api")
     return app
 
 
