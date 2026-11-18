@@ -6169,9 +6169,10 @@ git commit -m "feat: initData HMAC validation for Mini App"
 
 ```python
 """Зависимости API: initData → пользователь; доступ по роли из БД (без кеша)."""
+
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request
 
@@ -6185,7 +6186,9 @@ async def get_current_user(request: Request) -> User:
     db = request.app.state.db
     init_data = request.query_params.get("initData", "")
     try:
-        payload = validate_init_data(init_data, settings.bot_token, settings.initdata_max_age_seconds)
+        payload = validate_init_data(
+            init_data, settings.bot_token, settings.initdata_max_age_seconds
+        )
     except AuthError:
         raise HTTPException(status_code=401, detail="invalid init data") from None
     try:
@@ -6206,8 +6209,8 @@ async def get_current_user(request: Request) -> User:
     return user
 
 
-def require_role(*roles: str) -> Callable:
-    async def dep(user: User = Depends(get_current_user)) -> User:
+def require_role(*roles: str) -> Callable[..., User]:
+    async def dep(user: User = Depends(get_current_user)) -> User:  # noqa: B008  # noqa: B008
         if user.role not in roles:
             raise HTTPException(status_code=403, detail="forbidden")
         return user
