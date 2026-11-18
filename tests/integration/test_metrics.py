@@ -111,3 +111,18 @@ async def test_metrics_port_and_gauge(db, settings):
     finally:
         server.should_exit = True
         await task
+
+
+async def test_metrics_not_on_main_port(db, settings):
+    """Основной HTTP-порт не отдаёт /metrics (отдельный METRICS_PORT)."""
+    from app.config import Settings
+    from app.main import create_app
+    from tests.conftest import FAKE_TOKEN, TEST_DB_URL
+
+    s = Settings(bot_token=FAKE_TOKEN, dev_chat_id=-1, database_url=TEST_DB_URL, _env_file=None)
+    app = create_app(s)
+    assert "/metrics" not in [getattr(r, "path", "") for r in app.routes]
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.get("/metrics")
+        assert r.status_code == 404
