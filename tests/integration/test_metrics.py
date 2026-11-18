@@ -61,3 +61,53 @@ def test_http_metrics_path_template(db, settings):
 
     assert value({"method": "GET", "route": "/health/live", "status": "200"}) >= 2
     assert value({"method": "GET", "route": "unmatched", "status": "404"}) >= 1
+
+
+def _free_port() -> int:
+    import socket
+
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+async def test_metrics_port_and_gauge(db, settings):
+    from app.metrics import start_metrics_server
+    from app.services import tickets as tickets_svc
+    from app.services import users as users_svc
+
+    # два обращения: new и in_progress
+    async with db.session_factory() as s, s.begin():
+        u = await users_svc.upsert_user(s, telegram_id=1)
+        d = await users_svc.upsert_user(s, telegram_id=2)
+        await users_svc.change_role(s, user_id=d.id, new_role="developer")
+        await tickets_svc.create_ticket(
+            s, settings, u.id, description="d", priority="high", request_id="r1"
+        )
+        t2 = await tickets_svc.create_ticket(
+            s, settings, u.id, description="d2", priority="low", request_id="r2"
+        )
+        await tickets_svc.take_ticket(s, settings, d.id, t2, expected_version=1)
+
+    port = _free_port()
+    server, task = start_metrics_server(port, db)
+    try:
+        async with httpx.AsyncClient() as client:
+            r = None
+            for _ in range(100):
+                try:
+                    r = await client.get(f"http://127.0.0.1:{port}/metrics", timeout=0.5)
+                    break
+                except Exception:
+                    await asyncio.sleep(0.1)
+            assert r is not None and r.status_code == 200
+            text = r.text
+            assert 'tickets_open_by_status{status="new"} 1.0' in text
+            assert 'tickets_open_by_status{status="in_progress"} 1.0' in text
+            assert 'tickets_open_by_status{status="resolved"} 0.0' in text
+            assert "ticket_take_duration_seconds" in text
+    finally:
+        server.should_exit = True
+        await task

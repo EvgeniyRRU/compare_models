@@ -6,10 +6,13 @@ Gauge tickets_open_by_status вычисляется запросом к БД п�
 """
 
 from time import perf_counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request
 from prometheus_client import Counter, Gauge, Histogram
+
+if TYPE_CHECKING:
+    from app.db import DB
 
 http_requests_total = Counter(
     "http_requests_total", "Число HTTP-запросов", ["method", "route", "status"]
@@ -53,3 +56,46 @@ def add_http_metrics(app: FastAPI) -> None:
             perf_counter() - start
         )
         return response
+
+
+def make_metrics_app(db: DB) -> FastAPI:
+    """Отдельное ASGI-приложение для /metrics (свой порт, не через ingress)."""
+    from fastapi.responses import Response
+    from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
+    from sqlalchemy import func, select
+
+    from app.models import Ticket
+    from app.states import STATUSES
+
+    app = FastAPI()
+
+    @app.get("/metrics")
+    async def metrics_endpoint() -> Response:
+        # Gauge «открытые обращения по статусу» — запрос к БД при скрейпе.
+        # Каждая реплика отдаёт одинаковое значение → агрегировать max(), не sum().
+        async with db.session_factory() as s:
+            rows = (
+                await s.execute(
+                    select(Ticket.status, func.count(Ticket.id)).group_by(Ticket.status)
+                )
+            ).all()
+        counts = {st: 0 for st in STATUSES}
+        for st, n in rows:
+            counts[st] = n
+        for st in STATUSES:
+            open_tickets_by_status.labels(status=st).set(counts[st])
+        return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
+
+    return app
+
+
+def start_metrics_server(port: int, db: DB) -> tuple[Any, Any]:
+    """Второй uvicorn-сервер в том же процессе (один uvicorn-процесс на pod, два порта)."""
+    import asyncio
+
+    import uvicorn
+
+    config = uvicorn.Config(make_metrics_app(db), host="0.0.0.0", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve(), name="metrics-server")
+    return server, task

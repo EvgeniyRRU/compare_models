@@ -59,12 +59,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_processed_updates_cleanup(db), name="dedup_cleanup"),
         asyncio.create_task(run_reminder_loop(settings, db, tg_app.bot), name="reminders"),
     ]
+    metrics_server, metrics_task = metrics.start_metrics_server(settings.metrics_port, db)
     try:
         yield
     finally:
         for w in workers:
             w.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
+        metrics_server.should_exit = True
+        await metrics_task
         if settings.bot_mode == "polling":
             await app.state.updater.stop()
         await tg_app.stop()
