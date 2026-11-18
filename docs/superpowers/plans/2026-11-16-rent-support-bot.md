@@ -6066,7 +6066,8 @@ def test_tampered_payload_rejected():
     data = make_init_data(111, TOKEN)
     user_part, hash_part = data.rsplit("&hash=", 1)
     # подменяем user: меняем id
-    tampered = user_part.replace("id%22%3A111", "id%22%3A999", 1) if "id%22%3A111" in user_part else user_part
+    needle = "id%22%3A111"
+    tampered = user_part.replace(needle, "id%22%3A999", 1) if needle in user_part else user_part
     with pytest.raises(AuthError):
         validate_init_data(tampered + f"&hash={hash_part}", TOKEN, 86400)
 
@@ -6110,6 +6111,7 @@ import hashlib
 import hmac
 import json
 import time
+from typing import Any
 from urllib.parse import parse_qsl
 
 
@@ -6117,7 +6119,7 @@ class AuthError(Exception):
     pass
 
 
-def validate_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> dict:
+def validate_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> dict[str, Any]:
     params = dict(parse_qsl(init_data, keep_blank_values=True))
     hash_value = params.pop("hash", None)
     if not hash_value:
@@ -6140,9 +6142,10 @@ def validate_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> 
     if not user_raw:
         raise AuthError("user missing")
     try:
-        return json.loads(user_raw)
+        user: dict[str, Any] = json.loads(user_raw)
     except json.JSONDecodeError:
         raise AuthError("invalid user json") from None
+    return user
 ```
 
 - [ ] **Step 3: Run tests**
