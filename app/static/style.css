@@ -1,0 +1,69 @@
+:root {
+  --bg: #ffffff;
+  --text: #000000;
+  --hint: #999999;
+  --secondary-bg: #f4f4f5;
+  --button: #2481cc;
+  --button-text: #ffffff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header { padding: 12px 16px; border-bottom: 1px solid var(--secondary-bg); }
+header h1 { margin: 0; font-size: 20px; }
+
+#tabs { display: flex; gap: 8px; padding: 12px 16px; }
+#tabs button {
+  flex: 1; padding: 8px; border: 1px solid var(--secondary-bg);
+  background: var(--secondary-bg); color: var(--text);
+  border-radius: 8px; cursor: pointer;
+}
+#tabs button.active { background: var(--button); color: var(--button-text); }
+
+#filters { display: flex; gap: 8px; padding: 0 16px 8px; }
+#filters select { flex: 1; padding: 6px; border-radius: 8px; border: 1px solid var(--secondary-bg); background: var(--bg); color: var(--text); }
+
+#ticket-list { list-style: none; margin: 0; padding: 0 16px; }
+.ticket {
+  background: var(--secondary-bg); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+}
+.ticket-top { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.num { font-weight: 700; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg); }
+.status-new { color: #2481cc; }
+.status-in_progress, .status-waiting_info { color: #b58900; }
+.status-resolved { color: #2e9e44; }
+.status-rejected, .status-duplicate { color: #c0392b; }
+.prio-critical { color: #c0392b; font-weight: 700; }
+.prio-high { color: #e67e22; }
+.prio-low { color: var(--hint); }
+.ticket-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ticket-meta { font-size: 12px; color: var(--hint); margin-top: 4px; }
+.empty { text-align: center; color: var(--hint); padding: 24px; }
+
+#pager { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 12px; }
+#pager button { padding: 6px 12px; border-radius: 8px; border: none; background: var(--button); color: var(--button-text); cursor: pointer; }
+#pager button:disabled { opacity: 0.4; }
+
+#view-card { padding: 0 16px 16px; }
+#back { margin: 12px 0; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--secondary-bg); background: var(--secondary-bg); color: var(--text); cursor: pointer; }
+.card { background: var(--secondary-bg); border-radius: 10px; padding: 14px; }
+.card .desc { white-space: pre-wrap; }
+.card dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0; }
+.card dt { color: var(--hint); }
+#admin-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#admin-actions button { padding: 8px 12px; border: none; border-radius: 8px; background: var(--button); color: var(--button-text); cursor: pointer; }
+#admin-actions button.danger { background: #c0392b; }
+
+#view-roles { padding: 0 16px; overflow-x: auto; }
+#users-table { width: 100%; border-collapse: collapse; }
+#users-table th, #users-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--secondary-bg); }
+#users-table select { padding: 4px; border-radius: 6px; border: 1px solid var(--secondary-bg); background: var(--bg); color: var(--text); }

@@ -246,3 +246,24 @@ async def test_role_change_api(api_client, db, settings):
     )
     assert r.status_code == 409
     assert r.json()["detail"]["tickets"] == [t1]
+
+
+async def test_static_files():
+    """Статика Mini App отдаётся FastAPI."""
+    from app.config import Settings
+    from app.main import create_app
+    from tests.conftest import FAKE_TOKEN, TEST_DB_URL
+
+    settings = Settings(
+        bot_token=FAKE_TOKEN, dev_chat_id=-1, database_url=TEST_DB_URL, _env_file=None
+    )
+    app = create_app(settings)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.get("/")
+        assert r.status_code == 200
+        assert "app.js" in r.text
+        r = await c.get("/app.js")
+        assert r.status_code == 200
+        r = await c.get("/style.css")
+        assert r.status_code == 200

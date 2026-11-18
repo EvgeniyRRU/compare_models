@@ -1,8 +1,10 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app import log
 from app.api.health import router as health_router
@@ -18,6 +20,8 @@ from app.workers import (
     run_processed_updates_cleanup,
     run_reminder_loop,
 )
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
@@ -67,6 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(api_tickets_router, prefix="/api")
     app.include_router(api_users_router, prefix="/api")
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app
 
 

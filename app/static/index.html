@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Обращения</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><h1>Обращения</h1></header>
+  <nav id="tabs">
+    <button data-tab="mine" class="active">Мои</button>
+    <button data-tab="all">Все</button>
+    <button data-tab="roles" id="tab-roles" hidden>Роли</button>
+  </nav>
+
+  <section id="view-list">
+    <div id="filters">
+      <select id="f-status">
+        <option value="">Статус: все</option>
+        <option value="new">новое</option>
+        <option value="in_progress">в работе</option>
+        <option value="waiting_info">ждём информацию</option>
+        <option value="resolved">решено</option>
+        <option value="rejected">отклонено</option>
+        <option value="duplicate">дубль</option>
+      </select>
+      <select id="f-priority">
+        <option value="">Приоритет: все</option>
+        <option value="critical">критический</option>
+        <option value="high">высокий</option>
+        <option value="medium">средний</option>
+        <option value="low">низкий</option>
+      </select>
+    </div>
+    <ul id="ticket-list"></ul>
+    <div id="pager">
+      <button id="prev">← Назад</button>
+      <span id="page-info"></span>
+      <button id="next">Далее →</button>
+    </div>
+  </section>
+
+  <section id="view-card" hidden>
+    <button id="back">← Назад</button>
+    <div id="card"></div>
+  </section>
+
+  <section id="view-roles" hidden>
+    <table id="users-table">
+      <thead><tr><th>Пользователь</th><th>username</th><th>Роль</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
