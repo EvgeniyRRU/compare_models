@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, Request
 
@@ -23,7 +23,7 @@ async def get_current_user(request: Request) -> User:
         raise HTTPException(status_code=401, detail="invalid init data") from None
     try:
         telegram_id = int(payload["id"])
-    except (KeyError, ValueError, TypeError):
+    except KeyError, ValueError, TypeError:
         raise HTTPException(status_code=401, detail="invalid user") from None
     async with db.session_factory() as session, session.begin():
         user = await upsert_user(
@@ -39,8 +39,8 @@ async def get_current_user(request: Request) -> User:
     return user
 
 
-def require_role(*roles: str) -> Callable[..., User]:
-    async def dep(user: User = Depends(get_current_user)) -> User:  # noqa: B008  # noqa: B008
+def require_role(*roles: str) -> Callable[..., Awaitable[User]]:
+    async def dep(user: User = Depends(get_current_user)) -> User:  # noqa: B008
         if user.role not in roles:
             raise HTTPException(status_code=403, detail="forbidden")
         return user
