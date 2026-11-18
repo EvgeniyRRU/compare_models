@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
-from app import log
+from app import log, metrics
 from app.api.health import router as health_router
 from app.api.tickets import router as api_tickets_router
 from app.api.users import router as api_users_router
@@ -75,6 +75,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="rent-support-bot", lifespan=lifespan)
     app.state.settings = settings or get_settings()
+    metrics.add_http_metrics(app)
     app.include_router(health_router)
     app.include_router(webhook_router)
     app.include_router(api_tickets_router, prefix="/api")

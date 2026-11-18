@@ -5,6 +5,10 @@ Gauge tickets_open_by_status вычисляется запросом к БД п�
 реплика отдаёт одинаковое значение — агрегировать через max(), не sum() (README).
 """
 
+from time import perf_counter
+from typing import Any
+
+from fastapi import FastAPI, Request
 from prometheus_client import Counter, Gauge, Histogram
 
 http_requests_total = Counter(
@@ -30,3 +34,22 @@ errors_total = Counter("errors_total", "Ошибки", ["component"])
 open_tickets_by_status = Gauge(
     "tickets_open_by_status", "Открытые обращения по статусу (запрос к БД)", ["status"]
 )
+
+
+def add_http_metrics(app: FastAPI) -> None:
+    """Middleware: число запросов, latency, коды. В label — ШАБЛОН пути (кардинальность)."""
+
+    @app.middleware("http")
+    async def http_metrics(request: Request, call_next: Any) -> Any:
+        start = perf_counter()
+        response = await call_next(request)
+        route = request.scope.get("route")
+        path_format = getattr(route, "path_format", None)
+        template = path_format if path_format else "unmatched"
+        http_requests_total.labels(
+            method=request.method, route=template, status=str(response.status_code)
+        ).inc()
+        http_request_duration_seconds.labels(method=request.method, route=template).observe(
+            perf_counter() - start
+        )
+        return response
