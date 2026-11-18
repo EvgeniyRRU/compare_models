@@ -7400,17 +7400,11 @@ git commit -m "feat: sentry (init with fastapi/sqlalchemy, ptb error handler)"
 - [ ] **Step 1: Append в `app/metrics.py`**
 
 ```python
-from time import perf_counter
-
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware  # не нужно — используем @app.middleware
-
-
-def add_http_metrics(app) -> None:
+def add_http_metrics(app: FastAPI) -> None:
     """Middleware: число запросов, latency, коды. В label — ШАБЛОН пути (кардинальность)."""
 
     @app.middleware("http")
-    async def http_metrics(request: Request, call_next):
+    async def http_metrics(request: Request, call_next: Any) -> Any:
         start = perf_counter()
         response = await call_next(request)
         route = request.scope.get("route")
@@ -7424,7 +7418,7 @@ def add_http_metrics(app) -> None:
         )
         return response
 ```
-Убери неиспользуемый импорт BaseHTTPMiddleware.
+Импорты `perf_counter`/`Any`/`FastAPI, Request` — в блоке импортов вверху metrics.py (добавлены вместе с функцией).
 
 - [ ] **Step 2: В `app/main.py` create_app** — после `app.state.settings = ...`:
 
@@ -7435,6 +7429,8 @@ def add_http_metrics(app) -> None:
 - [ ] **Step 3: Append тест**
 
 ```python
+
+
 def test_http_metrics_path_template(db, settings):
     from fastapi import FastAPI
 
@@ -7453,8 +7449,6 @@ def test_http_metrics_path_template(db, settings):
             assert (await c.get("/health/live")).status_code == 200
             assert (await c.get("/health/live")).status_code == 200
             assert (await c.get("/no-such-path")).status_code == 404
-
-    import asyncio
 
     asyncio.run(run())
 
