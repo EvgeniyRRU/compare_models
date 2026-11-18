@@ -7482,10 +7482,11 @@ git commit -m "feat: http metrics middleware with path-template labels"
 - [ ] **Step 1: Append в `app/metrics.py`**
 
 ```python
-def make_metrics_app(db: DB) -> FastAPI:
+def make_metrics_app(db: "DB") -> "FastAPI":
     """Отдельное ASGI-приложение для /metrics (свой порт, не через ingress)."""
+    from fastapi import FastAPI
     from fastapi.responses import Response
-    from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
+    from prometheus_client import REGISTRY, CONTENT_TYPE_LATEST, generate_latest
     from sqlalchemy import func, select
 
     from app.models import Ticket
@@ -7494,14 +7495,12 @@ def make_metrics_app(db: DB) -> FastAPI:
     app = FastAPI()
 
     @app.get("/metrics")
-    async def metrics_endpoint() -> Response:
+    async def metrics_endpoint():
         # Gauge «открытые обращения по статусу» — запрос к БД при скрейпе.
         # Каждая реплика отдаёт одинаковое значение → агрегировать max(), не sum().
         async with db.session_factory() as s:
             rows = (
-                await s.execute(
-                    select(Ticket.status, func.count(Ticket.id)).group_by(Ticket.status)
-                )
+                await s.execute(select(Ticket.status, func.count(Ticket.id)).group_by(Ticket.status))
             ).all()
         counts = {st: 0 for st in STATUSES}
         for st, n in rows:
@@ -7513,7 +7512,7 @@ def make_metrics_app(db: DB) -> FastAPI:
     return app
 
 
-def start_metrics_server(port: int, db: DB) -> tuple[Any, Any]:
+def start_metrics_server(port: int, db: "DB"):
     """Второй uvicorn-сервер в том же процессе (один uvicorn-процесс на pod, два порта)."""
     import asyncio
 
@@ -7561,31 +7560,27 @@ async def test_metrics_port_and_gauge(db, settings):
         u = await users_svc.upsert_user(s, telegram_id=1)
         d = await users_svc.upsert_user(s, telegram_id=2)
         await users_svc.change_role(s, user_id=d.id, new_role="developer")
-        await tickets_svc.create_ticket(
-            s, settings, u.id, description="d", priority="high", request_id="r1"
-        )
-        t2 = await tickets_svc.create_ticket(
-            s, settings, u.id, description="d2", priority="low", request_id="r2"
-        )
+        t1 = await tickets_svc.create_ticket(s, settings, u.id, description="d", priority="high", request_id="r1")
+        t2 = await tickets_svc.create_ticket(s, settings, u.id, description="d2", priority="low", request_id="r2")
         await tickets_svc.take_ticket(s, settings, d.id, t2, expected_version=1)
 
     port = _free_port()
     server, task = start_metrics_server(port, db)
     try:
-        async with httpx.AsyncClient() as client:
-            r = None
-            for _ in range(100):
-                try:
-                    r = await client.get(f"http://127.0.0.1:{port}/metrics", timeout=0.5)
-                    break
-                except Exception:
-                    await asyncio.sleep(0.1)
-            assert r is not None and r.status_code == 200
-            text = r.text
-            assert 'tickets_open_by_status{status="new"} 1.0' in text
-            assert 'tickets_open_by_status{status="in_progress"} 1.0' in text
-            assert 'tickets_open_by_status{status="resolved"} 0.0' in text
-            assert "ticket_take_duration_seconds" in text
+        import asyncio as _a
+
+        for _ in range(100):
+            try:
+                r = httpx.get(f"http://127.0.0.1:{port}/metrics", timeout=0.5)
+                break
+            except Exception:
+                await _a.sleep(0.1)
+        assert r.status_code == 200
+        text = r.text
+        assert 'tickets_open_by_status{status="new"} 1.0' in text
+        assert 'tickets_open_by_status{status="in_progress"} 1.0' in text
+        assert 'tickets_open_by_status{status="resolved"} 0.0' in text
+        assert "ticket_take_duration_seconds" in text
     finally:
         server.should_exit = True
         await task
@@ -7608,10 +7603,9 @@ git commit -m "feat: metrics server on separate port, open-tickets gauge from DB
 ```python
 async def test_metrics_not_on_main_port(db, settings):
     """Основной HTTP-порт не отдаёт /metrics (отдельный METRICS_PORT)."""
-    from tests.conftest import FAKE_TOKEN, TEST_DB_URL
-
     from app.config import Settings
     from app.main import create_app
+    from tests.conftest import FAKE_TOKEN, TEST_DB_URL
 
     s = Settings(bot_token=FAKE_TOKEN, dev_chat_id=-1, database_url=TEST_DB_URL, _env_file=None)
     app = create_app(s)
