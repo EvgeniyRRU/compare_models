@@ -3,8 +3,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import sentry_sdk
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app import log
 from app.api.health import router as health_router
@@ -28,6 +31,11 @@ STATIC_DIR = Path(__file__).parent / "static"
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     log.configure_logging(settings.log_level, settings.log_format)
+    if settings.sentry_dsn:
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        )
     settings.validate_modes()
     app.state.db = make_db(settings.database_url)
 
