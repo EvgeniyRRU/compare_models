@@ -7276,24 +7276,24 @@ loadMe().catch((e) => {
 ```python
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
-
 STATIC_DIR = Path(__file__).parent / "static"
-...
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
-    return app
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 ```
 
 - [ ] **Step 5: Append test в `tests/integration/test_api.py`**
 
 ```python
+
+
 async def test_static_files():
     """Статика Mini App отдаётся FastAPI."""
-    from tests.conftest import FAKE_TOKEN, TEST_DB_URL
-
     from app.config import Settings
     from app.main import create_app
+    from tests.conftest import FAKE_TOKEN, TEST_DB_URL
 
-    settings = Settings(bot_token=FAKE_TOKEN, dev_chat_id=-1, database_url=TEST_DB_URL, _env_file=None)
+    settings = Settings(
+        bot_token=FAKE_TOKEN, dev_chat_id=-1, database_url=TEST_DB_URL, _env_file=None
+    )
     app = create_app(settings)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
