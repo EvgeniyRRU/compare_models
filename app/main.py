@@ -10,7 +10,12 @@ from app.bot.application import build_application
 from app.bot.webhook import router as webhook_router
 from app.config import Settings, get_settings
 from app.db import make_db
-from app.workers import run_draft_ttl_loop, run_post_sync_loop, run_processed_updates_cleanup
+from app.workers import (
+    run_draft_ttl_loop,
+    run_post_sync_loop,
+    run_processed_updates_cleanup,
+    run_reminder_loop,
+)
 
 
 @asynccontextmanager
@@ -38,6 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_post_sync_loop(settings, db, tg_app.bot), name="post_sync"),
         asyncio.create_task(run_draft_ttl_loop(settings, db), name="draft_ttl"),
         asyncio.create_task(run_processed_updates_cleanup(db), name="dedup_cleanup"),
+        asyncio.create_task(run_reminder_loop(settings, db, tg_app.bot), name="reminders"),
     ]
     try:
         yield

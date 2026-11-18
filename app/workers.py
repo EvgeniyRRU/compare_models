@@ -88,3 +88,18 @@ async def run_processed_updates_cleanup(db: DB) -> None:
             raise
         except Exception as exc:
             _report("dedup_cleanup", exc)
+
+
+async def run_reminder_loop(settings: Settings, db: DB, bot: Any) -> None:
+    from app.services.reminders import claim_due_reminders, send_reminders
+
+    while True:
+        await asyncio.sleep(settings.reminder_poll_interval_seconds)
+        try:
+            claims = await claim_due_reminders(db.session_factory, settings)
+            if claims:
+                await send_reminders(settings, bot, claims)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _report("reminders", exc)
