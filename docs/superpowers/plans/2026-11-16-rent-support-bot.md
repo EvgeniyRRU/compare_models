@@ -7345,10 +7345,7 @@ git commit -m "fix: stage 7 lint/type fixes"
     if settings.sentry_dsn:
         sentry_sdk.init(
             dsn=settings.sentry_dsn,
-            integrations=[
-                sentry_sdk.integrations.FastApiIntegration(),
-                sentry_sdk.integrations.SqlalchemyIntegration(),
-            ],
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
         )
 ```
 (импорт `import sentry_sdk` вверху). Остальной main.py — как в Task 5.9/6.1 + статика из Task 7.5.
@@ -7358,11 +7355,10 @@ git commit -m "fix: stage 7 lint/type fixes"
 ```python
 # tests/integration/test_metrics.py
 """Сентри, HTTP-метрики, metrics-порт."""
-import httpx
+
 import sentry_sdk
 from telegram import Update
 
-from app.metrics import open_tickets_by_status
 from tests.fakes import make_update
 
 
